@@ -1,0 +1,19 @@
+# Ignore MATLAB backup and cache files
+*.asv
+*.autosave
+
+# Ignore temporary files
+*.tmp
+*.log
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore local folders like editor settings or personal data
+.vscode/
+*.mat
+*.fig
+
+# Ignore your large file
+data/mrAndVideoData.mat
