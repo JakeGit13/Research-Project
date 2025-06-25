@@ -40,6 +40,7 @@ end
 % First channel seems to contain the scanner noise which can be deleted,
 % leading to a much cleaner audio
 cleanAudio = Y(:,2)-Y(:,1);
+
 figure;
 subplot(2,2,1);
 plot(Y(:,2))
@@ -47,6 +48,57 @@ title('Audio before cleaning')
 subplot(2,2,2);
 plot(cleanAudio)
 title('Audio after cleaning')
+
+
+
+%% Create 2x2 comparison plot for report
+figure('Position', [100 100 1200 800]);
+
+% Spectrogram parameters
+window = hamming(2048);
+noverlap = 1024;
+nfft = 4096;
+
+% Top left: Spectrogram before cleaning
+subplot(2,2,1);
+spectrogram(Y(:,2), window, noverlap, nfft, FS, 'yaxis');
+colorbar;
+title('Spectrogram - Original (Speech + MRI Noise)');
+ylabel('Frequency (Hz)');
+xlabel('Time (s)');
+
+% Top right: Spectrogram after cleaning
+subplot(2,2,2);
+spectrogram(cleanAudio, window, noverlap, nfft, FS, 'yaxis');
+colorbar;
+title('Spectrogram - After Noise Cancellation');
+ylabel('Frequency (Hz)');
+xlabel('Time (s)');
+
+% Bottom left: Power spectrum before cleaning
+subplot(2,2,3);
+[Pxx_before, F] = pwelch(Y(:,2), window, noverlap, nfft, FS);
+plot(F/1000, 10*log10(Pxx_before), 'b', 'LineWidth', 1.5);
+grid on;
+xlabel('Frequency (kHz)');
+ylabel('Power (dB)');
+title('Power Spectrum - Original');
+xlim([0 FS/2000]); % Show full range up to Nyquist
+
+% Bottom right: Power spectrum after cleaning
+subplot(2,2,4);
+[Pxx_after, F] = pwelch(cleanAudio, window, noverlap, nfft, FS);
+plot(F/1000, 10*log10(Pxx_after), 'r', 'LineWidth', 1.5);
+grid on;
+xlabel('Frequency (kHz)');
+ylabel('Power (dB)');
+title('Power Spectrum - After Noise Cancellation');
+xlim([0 FS/2000]); % Show full range up to Nyquist
+
+% Overall title
+sgtitle('MRI Scanner Noise Removal Analysis', 'FontSize', 14);
+
+
 
 % If you'd like to listen to the recording
 sound(cleanAudio,FS)
