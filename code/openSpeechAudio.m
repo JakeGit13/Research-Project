@@ -41,6 +41,9 @@ end
 % leading to a much cleaner audio
 cleanAudio = Y(:,2)-Y(:,1);
 
+
+
+%% Plotting
 figure;
 subplot(2,2,1);
 plot(Y(:,2))
