@@ -133,3 +133,8 @@ pause(length(lpRawAudio)/lpFs + 1);
 disp('Playing: LPF + downsampled (cleaned)');
 sound(lpCleanAudio, lpFs);  
 pause(length(lpCleanAudio)/lpFs + 1);
+
+
+% At the end of the audio cleaning script
+save(sprintf('sub%d_sen%d_cleaned.mat', subNum, senNum), ...
+    'lpCleanAudio', 'lpFs', 'subNum', 'senNum');
