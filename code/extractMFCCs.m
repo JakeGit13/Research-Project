@@ -64,3 +64,10 @@ figure;
 imagesc(pooledMFCCs'); axis xy; colormap jet;
 xlabel('Frame (16fps)'); ylabel('MFCC Coeff #');
 title('Pooled MFCCs aligned to MRI Frame Rate');
+
+
+% Double check this is the right place to put it 
+pooledMFCCs = pooledMFCCs';  % Now [13 × numFrames] to match PCA format
+
+% Figure out how to get this into the PCA now
+
