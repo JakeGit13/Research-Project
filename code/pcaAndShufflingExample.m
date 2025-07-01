@@ -27,7 +27,7 @@ function pcaAndShufflingExample
 % Last modified: 22nd Sept 2019
 
 
-% THINGS THAT YOU MAY WANT TO CHANGE *******************************************************************************************************************
+% THINGS THAT YOU MAY WANT TO CHANGE ***********************************
 % Point to the location of the mat file 'mrAndVideoData.mat' 
 dataDir = '/Users/jaker/Research-Project/data';
 
@@ -36,8 +36,11 @@ usePar = true; % set to false if parallel processing isn't required/working
 reconstructInd = 1; % 1 = MR, 2 = video
 
 nBoots = 1000; % # bootstraps
-% ******************************************************************************************************************************************************
 
+% Specify which actor/sentence to process
+targetActor = 8;
+targetSentence = 7;  % This corresponds to sentence 252 in the audio files
+% *********************************************************************
 
 % Reset random seed
 rng('default');
@@ -50,17 +53,79 @@ load(dataFile,'data');
 actors = [data.actor]; % Array of actor numbers
 sentences = [data.sentence]; % Array of sentence numbers
 
+% Find the index for the specified actor/sentence
+targetIndex = 0;
+for i = 1:length(data)
+    if data(i).actor == targetActor && data(i).sentence == targetSentence
+        targetIndex = i;
+        break;
+    end
+end
+
+if targetIndex == 0
+    error('Could not find Actor %d, Sentence %d in the dataset', targetActor, targetSentence);
+else
+    fprintf('Processing Actor %d, Sentence %d at index %d\n', targetActor, targetSentence, targetIndex);
+end
+
+% After selecting thisMRWarp and thisVidWarp, add:
+
+% Audio processing
+audioFolder = '/Users/jaker/Research-Project/data/audio';
+audioFile = fullfile(audioFolder, 'sub8_sen_258_8_svtimriMANUAL.wav');
+
+% Check if file exists
+if ~exist(audioFile, 'file')
+    error('Audio file not found: %s', audioFile);
+end
+
+
 %% PCA on hybrid facial video and vocal-tract MR images
 
-for ii = 1%:length(actors)
+for ii = targetIndex    % Not sure about this 
     
     % Select out data fro this actor/sentence
     thisMRWarp = data(ii).mr_warp2D;
     thisVidWarp = data(ii).vid_warp2D;
+
     
-    % Concatentate the MR and video data
-    mixWarps = [thisMRWarp; thisVidWarp];
+
+    % Process audio through audio pipeline
+    [Y, FS] = audioread(audioFile);
+    [lpCleanAudio, lpFs, ~] = audioPreprocessing(Y, FS);
+    pooledMFCCs = extractMFCCs(lpCleanAudio, lpFs);
+
+
+    % Check actual durations
+    mr_duration = size(thisMRWarp, 2) / 16;  % MR frames / fps
+    audio_duration = length(lpCleanAudio) / lpFs;
     
+    fprintf('MR/Video duration: %.2f seconds\n', mr_duration);
+    fprintf('Audio duration: %.2f seconds\n', audio_duration);
+
+    % Add this after loading the data
+    fprintf('Checking frame rates for Actor %d, Sentence %d:\n', targetActor, targetSentence);
+    fprintf('MR frames: %d\n', size(data(targetIndex).mr_warp2D, 2));
+    fprintf('Video frames: %d\n', size(data(targetIndex).vid_warp2D, 2));
+    
+
+    
+    % Verify frame counts match
+    fprintf('MR frames: %d\n', size(thisMRWarp, 2));
+    fprintf('Video frames: %d\n', size(thisVidWarp, 2));
+    fprintf('Audio frames: %d\n', size(pooledMFCCs, 2));
+
+    if size(thisMRWarp,2) ~= size(pooledMFCCs,2)
+    error('Frame count mismatch! Cannot proceed.');
+        end     
+
+    
+    % Concatenate THREE modalities instead of two
+    mixWarps = [thisMRWarp; thisVidWarp; pooledMFCCs];
+
+
+    %% Haven't got passed this yet 
+
     % Perform a PCA on the hybrid data
     [origPCA,origMorphMean,origloadings] = doPCA(mixWarps);
     
