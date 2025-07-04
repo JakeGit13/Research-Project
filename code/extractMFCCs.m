@@ -1,24 +1,16 @@
 function pooledMFCCs = extractMFCCs(lpCleanAudio, lpFs)
-% extractMFCCs - Extract and pool MFCCs to match MRI frame rate
-%
-% Input:
-%   lpCleanAudio - cleaned and filtered audio signal
-%   lpFs - sampling rate of the audio (typically 20000 Hz)
-%
-% Output:
-%   pooledMFCCs - MFCCs pooled to 16fps and transposed to [13 × numFrames]
 
-% Example MFCC extraction with standard audio settings (e.g., 25ms/10ms)
+% Example MFCC extraction with standard audio settings 
 frameLength = round(0.025 * lpFs);     % 25 ms window
 frameOverlap = round(0.015 * lpFs);    % 10 ms hop
 
-[coeffs, ~, ~, ~] = mfcc(lpCleanAudio, lpFs, ...
+[coeffs, ~, ~, ~] = mfcc(lpCleanAudio, lpFs, ...    % 13 Coefficients  
     'Window', hamming(frameLength, 'periodic'), ...
     'OverlapLength', frameOverlap);
 
-actualFPS = lpFs / (frameLength - frameOverlap);
+actualFPS = lpFs / (frameLength - frameOverlap);    
 fprintf('Extracted MFCCs at approx. %.2f fps (%d frames, %d coeffs per frame)\n', ...
-    actualFPS, size(coeffs,1), size(coeffs,2));
+    actualFPS, size(coeffs,1), size(coeffs,2)); % 100 Fps 
 
 %% Plot high-res MFCCs before pooling 
 % figure;
@@ -29,14 +21,14 @@ fprintf('Extracted MFCCs at approx. %.2f fps (%d frames, %d coeffs per frame)\n'
 %% Pool MFCCs to match MRI 16fps
 targetFPS = 16;
 mriFrameDuration = 1 / targetFPS;  % 62.5 ms per MRI frame
-audioDuration = length(lpCleanAudio) / lpFs;
+audioDuration = length(lpCleanAudio) / lpFs;    
 
-% How many pooled frames?
-numPooledFrames = floor(audioDuration * targetFPS);
+% How many pooled frames
+numPooledFrames = floor(audioDuration * targetFPS); % How many 16fps frames in the audio
 
-% How many MFCC frames per MRI frame?
-mfccTimestamps = linspace(0, audioDuration, size(coeffs,1));
-pooledMFCCs = zeros(numPooledFrames, size(coeffs,2));
+% How many MFCC frames per MRI frame
+mfccTimestamps = linspace(0, audioDuration, size(coeffs,1));    % Time stamp for each MFCC frame 
+pooledMFCCs = zeros(numPooledFrames, size(coeffs,2));   
 
 for i = 1:numPooledFrames
     % Define start and end time for this MRI frame window
@@ -44,11 +36,11 @@ for i = 1:numPooledFrames
     t_end   = t_start + mriFrameDuration;
 
     % Find MFCC frames that fall into this window
-    inWindow = (mfccTimestamps >= t_start) & (mfccTimestamps < t_end);
+    inWindow = (mfccTimestamps >= t_start) & (mfccTimestamps < t_end);  % True / False array 
     
-    % Pool (mean) the MFCCs in this window
-    if any(inWindow)
-        pooledMFCCs(i,:) = mean(coeffs(inWindow, :), 1);
+    % Mean pool the MFCCs in this window
+    if any(inWindow)    % This runs if at least one MFCC frame is in the window
+        pooledMFCCs(i,:) = mean(coeffs(inWindow, :), 1);    % Take mean of MFCC frames that happened during time window
     else
         % If no MFCC frames fall in the current MRI window
         if i > 1
@@ -61,7 +53,7 @@ end
 
 fprintf('Pooled MFCCs to %d frames at %d fps.\n', size(pooledMFCCs,1), targetFPS);
 
-%% Plot pooled MFCCs - COMMENTED OUT
+%% Plot pooled MFCCs 
 % figure;
 % imagesc(pooledMFCCs'); axis xy; colormap jet;
 % xlabel('Frame (16fps)'); ylabel('MFCC Coeff #');
@@ -71,3 +63,18 @@ fprintf('Pooled MFCCs to %d frames at %d fps.\n', size(pooledMFCCs,1), targetFPS
 pooledMFCCs = pooledMFCCs';  % Now [13 × numFrames] to match PCA format
 
 end
+
+%% Example Call 
+
+% Audio processing
+audioFolder = '/Users/jaker/Research-Project/data/audio';
+audioFile = fullfile(audioFolder, 'sub8_sen_258_8_svtimriMANUAL.wav');
+
+% Check if file exists
+if ~exist(audioFile, 'file')
+    error('Audio file not found: %s', audioFile);
+end
+
+[Y, FS] = audioread(audioFile);
+[lpCleanAudio, lpFs, ~] = audioPreprocessing(Y, FS);
+pooledMFCCs = extractMFCCs(lpCleanAudio, lpFs);

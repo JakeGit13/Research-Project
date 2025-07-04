@@ -1,4 +1,5 @@
-function [lpCleanAudio, lpFs, cleanAudio] = processAudio(Y, FS)
+function [lpCleanAudio, lpFs, cleanAudio] = audioPreprocessing(Y, FS)
+
     % First channel contains scanner noise, subtract from second channel
     cleanAudio = Y(:,2) - Y(:,1);
 
@@ -8,7 +9,7 @@ function [lpCleanAudio, lpFs, cleanAudio] = processAudio(Y, FS)
     lpFs = targetFs;
 end
 
-%% Leave commented out for now
+
 
 % %% Example function call 
 % 
@@ -38,6 +39,8 @@ end
 % [lpCleanAudio, lpFs, cleanAudio] = processAudio(Y, FS);
 % 
 % 
+% 
+% 
 % %% Plotting
 % 
 % % Spectrogram and Power Spectrum Parameters
@@ -61,7 +64,6 @@ end
 % title('Original Audio (Noisy) - Spectrogram');
 % ylabel('Frequency (Hz)');
 % xlabel('Time (s)');
-% ylim([0 fMax/1000]);
 % 
 % % Power Spectrum - Original
 % subplot(2,2,2);
@@ -69,7 +71,6 @@ end
 % title('Original Audio (Noisy) - Power Spectrum');
 % xlabel('Frequency (Hz)');
 % ylabel('Power (dB)');
-% xlim([0 fMax]);
 % grid on;
 % 
 % % Spectrogram - Processed
@@ -78,7 +79,6 @@ end
 % title('Processed Audio - Spectrogram');
 % xlabel('Time (s)');
 % ylabel('Frequency (Hz)');
-% ylim([0 fMax/1000]);
 % 
 % % Power Spectrum - Processed
 % subplot(2,2,4);
@@ -86,7 +86,6 @@ end
 % title('Processed Audio - Power Spectrum');
 % xlabel('Frequency (Hz)');
 % ylabel('Power (dB)');
-% xlim([0 fMax]);
 % grid on;
 % 
 % sgtitle('Audio Signal: Before and After Processing');
@@ -107,4 +106,3 @@ end
 % 
 % disp('Playing: LPF + downsampled (cleaned)');
 % sound(lpCleanAudio, lpFs);
-% pause(length(lpCleanAudio)/lpFs + 1);
