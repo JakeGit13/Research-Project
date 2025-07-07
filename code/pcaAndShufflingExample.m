@@ -29,7 +29,7 @@ function pcaAndShufflingExample
 
 % THINGS THAT YOU MAY WANT TO CHANGE *******************************************************************************************************************
 % Point to the location of the mat file 'mrAndVideoData.mat' 
-dataDir = '/Users/lpzcs/Documents/MATLAB/';
+dataDir = '/Users/jaker/Research-Project/data/';
 
 usePar = true; % set to false if parallel processing isn't required/working
 
@@ -49,6 +49,25 @@ load(dataFile,'data');
 
 actors = [data.actor]; % Array of actor numbers
 sentences = [data.sentence]; % Array of sentence numbers
+
+
+%% Import audio
+
+audioFolder = '/Users/jaker/Research-Project/data/audio';
+
+subNum = 8; % subject number
+senNum = 252; % sentence number
+
+cd(audioFolder);
+filePattern = sprintf('sub%d_sen_%d*', subNum, senNum);
+thisFile = dir(filePattern);
+
+if length(thisFile) > 1
+    error('File name is not unique - more than one match found.');
+elseif isempty(thisFile)
+    error('File not found: check the subject and sentence numbers.');
+end
+
 
 %% PCA on hybrid facial video and vocal-tract MR images
 
@@ -119,7 +138,7 @@ for ii = 1%:length(actors)
         parfor bootI = 1:nBoots
             % ************ Shuffle the MR warps ************ but keep the (time-matched) warps from the video
             shuffWarps = [thisMRWarp(:,permIndexes(bootI,:)); thisVidWarp];
-            [PCA,MorphMean,loadings] = pcaScholesParallel(shuffWarps);
+            [PCA,MorphMean,loadings] = doPCA(shuffWarps);
             
             partial_data = shuffWarps;
             partial_data(elementBoundaries(reconstructInd)+1:elementBoundaries(reconstructInd+1),:) = 0; % set the MR section to 0
@@ -136,7 +155,7 @@ for ii = 1%:length(actors)
         for bootI = 1:nBoots
             % ************ Shuffle the MR warps ************ but keep the (time-matched) warps from the video
             shuffWarps = [thisMRWarp(:,permIndexes(bootI,:)); thisVidWarp];
-            [PCA,MorphMean,loadings] = pcaScholesParallel(shuffWarps);
+            [PCA,MorphMean,loadings] = doPCA(shuffWarps);
             
             partial_data = shuffWarps;
             partial_data(elementBoundaries(reconstructInd)+1:elementBoundaries(reconstructInd+1),:) = 0; % set the MR section to 0
