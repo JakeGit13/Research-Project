@@ -28,9 +28,3 @@ fprintf('Audio cleaned and downsampled to %d Hz\n', lpFs);
 pooledMFCCs = extractMFCCs(lpCleanAudio, lpFs);
 fprintf('MFCCs extracted: %d coefficients x %d frames\n', size(pooledMFCCs));
 
-% Optional: Plot results
-figure;
-imagesc(pooledMFCCs); axis xy; colormap jet;
-xlabel('Frame (16fps)'); ylabel('MFCC Coefficient');
-title(sprintf('Pooled MFCCs for %s', filename));
-colorbar;
