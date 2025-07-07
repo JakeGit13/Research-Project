@@ -88,9 +88,11 @@ for ii = targetIndex    % Not sure about this
     thisMRWarp = data(ii).mr_warp2D;
     thisVidWarp = data(ii).vid_warp2D;
 
+    
+
     % Process audio through audio pipeline
     [Y, FS] = audioread(audioFile);
-    [lpCleanAudio, lpFs, ~] = processAudio(Y, FS);
+    [lpCleanAudio, lpFs, ~] = audioPreprocessing(Y, FS);
     pooledMFCCs = extractMFCCs(lpCleanAudio, lpFs);
 
 
