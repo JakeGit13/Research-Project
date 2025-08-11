@@ -1,10 +1,9 @@
-function spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs)
+function spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs, targetFPS)
 
     %% Fixed optimal parameters
     windowSize = 0.025;  % 25ms (in seconds)
     hopSize = 0.010;     % 10ms (in seconds)
     maxFreq = 8000;      % Hz
-    targetFPS = 45;      % Match MR/video
     
     %% Compute spectrogram
     winLength = round(lpFs * windowSize);
@@ -18,16 +17,43 @@ function spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs)
     % Convert to log scale (what worked best)
     specPower = abs(S).^2;
     logSpec = 10*log10(specPower + 1e-10);
+
+
     
     %% Keep only 0-8000 Hz
     freqIdx = F <= maxFreq;
     logSpec = logSpec(freqIdx, :);
+
+
+    % After computing spectrogram
+    figure('Name', 'Spectrogram Features');
     
-    %% Pool to 16 fps
+    % Plot original spectrogram
+    subplot(2,1,1);
+    imagesc(T, F(freqIdx)/1000, logSpec);
+    axis xy;
+    colorbar;
+    xlabel('Time (s)');
+    ylabel('Frequency (kHz)');
+    title('Spectrogram');
+    colormap('jet');
+    
+    %% Pool to target frame rate fps
     audioDuration = length(lpCleanAudio) / lpFs;
     numFrames = floor(audioDuration * targetFPS);
-    frameTimestamps = linspace(0, audioDuration, length(T));
+    frameTimestamps = T;
     pooledSpec = zeros(size(logSpec,1), numFrames);
+
+    % Plot pooled spectrogram
+    subplot(2,1,2);
+    timeVector = (0:numFrames-1) / targetFPS;
+    imagesc(timeVector, F(freqIdx)/1000, pooledSpec);
+    axis xy;
+    colorbar;
+    xlabel('Time (s)');
+    ylabel('Frequency (kHz)');
+    title(['Pooled Spectrogram (' num2str(targetFPS) ' fps)']);
+    colormap('jet');
     
     for i = 1:numFrames
         t_start = (i-1) / targetFPS;
@@ -35,8 +61,8 @@ function spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs)
         idx = (frameTimestamps >= t_start) & (frameTimestamps < t_end);
         
         if any(idx)
-            % Max pooling (preserves peaks better)
-            pooledSpec(:,i) = max(logSpec(:,idx), [], 2);
+            % Mean pooling to be consistent with MFCC 
+            pooledSpec(:,i) = mean(logSpec(:,idx), 2);
             
         else
             if i > 1

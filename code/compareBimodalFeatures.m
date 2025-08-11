@@ -14,8 +14,9 @@ thisMRWarp = data(actorIdx).mr_warp2D;
 thisVideoWarp = data(actorIdx).vid_warp2D;
 
 %% Set common parameters
-offset = 2;  
+offset = 1;  
 numFrames = min([size(thisMRWarp,2), size(thisVideoWarp,2)]);
+targetFps = 16;
 
 %% BASELINE TEST (Video -> MR)
 fprintf('BASELINE VALIDATION\n');
@@ -26,14 +27,14 @@ partial_base = videoMRData;
 partial_base(1:size(thisMRWarp,1), :) = 0;  % Zero MR, keep video
 recon_base = reconstructFromPartial(partial_base, pca_base);
 corr_baseline = corr(loadings_base(:), recon_base(:));
-fprintf('Video → MR: %.3f (validates our implementation)\n\n', corr_baseline);
+fprintf('Video -> MR: %.3f (validates our implementation)\n\n', corr_baseline);
 
 %% Extract MFCCs / Spectrograms
 % Extract MFCCs
-mfccFeatures = extractMFCCs(lpCleanAudio, lpFs);
+mfccFeatures = extractMFCCs(lpCleanAudio, lpFs, targetFps);
 
 % Extract Spectrograms  
-spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs);
+spectrogramFeatures = extractSpectrograms(lpCleanAudio, lpFs, targetFps);
 
 % Align to video/MR length
 numFrames = min([numFrames, size(mfccFeatures,2), size(spectrogramFeatures,2)]);

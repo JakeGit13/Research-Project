@@ -1,9 +1,12 @@
-function [lpAudio, lpFs] = processAudio(Y, FS)
-    % Just take a single channel
-    audio = Y(:,2);  % Or Y(:,1) if channel 1 is better
+function cleanAudio = processAudio(audioFilePath)
+    % Load the audio file
+    [Y, FS] = audioread(audioFilePath);
     
-    % Low-pass filter and downsample to 20kHz
-    targetFs = 30000;
-    lpAudio = resample(audio, targetFs, FS);
-    lpFs = targetFs;
+    % Clean by subtracting scanner noise
+    % Channel 1 has scanner noise, Channel 2 has voice+noise
+    % Subtracting removes the common noise
+    cleanAudio = Y(:,2) - Y(:,1);
+    
 end
+
+

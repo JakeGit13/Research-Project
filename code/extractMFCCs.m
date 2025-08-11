@@ -1,11 +1,10 @@
-function mfccFeatures = extractMFCCs(lpCleanAudio, lpFs)
+function mfccFeatures = extractMFCCs(lpCleanAudio, lpFs, targetFPS)
 
     %% Fixed parameters
     numCoeffs = 13;      % Standard for speech
     numFilters = 26;     % Standard mel filterbank size
     windowSize = 0.025;  % 25ms windows
     hopSize = 0.010;     % 10ms hop
-    targetFPS = 45;      % Match MR/video frame rate
     
     %% Extract MFCCs at original rate (~100 fps)
     % Convert time to samples
@@ -21,9 +20,18 @@ function mfccFeatures = extractMFCCs(lpCleanAudio, lpFs)
         'Window', analysisWindow, ...
         'OverlapLength', winLength - hopLength);
         
-
+    % After extracting original MFCCs (around line 25):
+    figure('Name', 'MFCC Features');
     
-    %% Pool to 16 fps
+    % Plot original MFCCs
+    subplot(2,1,1);
+    imagesc(mfccWithEnergy');
+    axis xy;
+    colorbar;
+    xlabel('Frame Index (~100 fps)');
+    ylabel('MFCC Coefficient');
+    title('MFCCs');
+    
     %% Pool to 16 fps
     numFramesOriginal = size(mfccWithEnergy, 1); % <-- ADD THIS LINE
 
@@ -35,6 +43,15 @@ function mfccFeatures = extractMFCCs(lpCleanAudio, lpFs)
     
     % Pool by averaging frames within each target window
     pooledMFCCs = zeros(numFramesTarget, 14);
+
+    % Plot pooled MFCCs
+    subplot(2,1,2);
+    imagesc(pooledMFCCs');
+    axis xy;
+    colorbar;
+    xlabel(['Frame Index (' num2str(targetFPS) ' fps)']);
+    ylabel('MFCC Coefficient');
+    title('Pooled MFCCs');
     
     for i = 1:numFramesTarget
         % Time window for this target frame
