@@ -1,33 +1,9 @@
-function pcaAndShufflingExample
+function trimodalPcaAndShufflingExample
 % pcaAndShufflingExample
-% SCRIPT FOR THE PAPER 'The inter-relationship between the face and vocal-tract configuration during audio-visual speech'
-%   A PCA is performed on the hybrid MR/video, the MR is reconstructed, and the original and reconstructed loadings are displayed
-%   The same process is then performed 1000 times when the MR frame order has been randomly-shuffled and loading comparison statistics are displayed  
-%
-%   Only one actor/sentence example is shown by default, as it takes some time to compute 1000 shuffled PCAs
-%   Shuffling:
-%       If more than one core is available then parallel processing will be used (this can be switched on/off using usePar)
-%       On my ~2015 Mac Book Pro it takes around 3-4 minutes to run the shuffling for one actor/sentence, without using parallel processing
-%       If the shuffling is taking too long then reduce the number of bootstraps (nBoots)
-%
-%   A note on the data:
-%   data is a structure with an entry for each actor and sentence. It can be indexed into (e.g. data(1)) and the dot notation used to
-%   access specific fields. For example, data(1).mr_frames gives a cell array containing the MR frames for actor 1 / sentence 252 and
-%   data(6).vid_warp2D gives the video input to the PCA for actor 8 / sentence 256
-%   Fields:
-%   mr_frames - cell array of MR frames
-%   video_frames - cell array of video frames
-%   mr_warp2D - MR input to the PCA
-%   vid_warp2D - video input to the PCA
-%   actor - actor number ([1, 4, 6, 7, 8, 10, 12, 13, 14])
-%   sentence - sentence number (1-10)
-%
-% Author: Chris Scholes / University of Nottingham / Department of Psychology
-% Date created:  8th Dec 2019
-% Last modified: 22nd Sept 2019
+% ADD DESCRIPTION LATER
+% JUST NEED TO FIGURE OUT HOW TO GET AUDIO INTO HERE 
+% ALSO NEED TO FIGURE OUT WHAT EXACTLY IS BEING RECONSTRUCTED 
 
-
-% THINGS THAT YOU MAY WANT TO CHANGE *******************************************************************************************************************
 % Point to the location of the mat file 'mrAndVideoData.mat' 
 dataDir = '/Users/jaker/Research-Project/data';
 
@@ -58,8 +34,11 @@ for ii = 1%:length(actors)
     thisMRWarp = data(ii).mr_warp2D;
     thisVidWarp = data(ii).vid_warp2D;
     
-    % Concatentate the MR and video data
-    mixWarps = [thisMRWarp; thisVidWarp];
+    audioFeatures = getAudioFeatures(ii);  % You'll write this simple function
+    mixWarps = [thisMRWarp; thisVidWarp; audioFeatures];
+
+    % Concatentate the MR, video AND audio data
+    mixWarps = [thisMRWarp; thisVidWarp, audioFeatures];
     
     % Perform a PCA on the hybrid data
     [origPCA,origMorphMean,origloadings] = doPCA(mixWarps);
@@ -68,7 +47,7 @@ for ii = 1%:length(actors)
     
     % Indexes of boundaries between MR and video
     warpSize = size(thisMRWarp);
-    elementBoundaries = [0 warpSize(1) 2*warpSize(1)]; % this works because MR and video frames have the same number of pixels
+    elementBoundaries = [0 warpSize(1) 2*warpSize(1) 2*warpSize(1)+257];
     nFrames = warpSize(2);
 
     partial_data = mixWarps;
