@@ -52,7 +52,7 @@ sentences = [data.sentence]; % Array of sentence numbers
 
 %% PCA on hybrid facial video and vocal-tract MR images
 
-for ii = 1%:length(actors)
+for ii = 9%:length(actors)
     
     % Select out data fro this actor/sentence
     thisMRWarp = data(ii).mr_warp2D;

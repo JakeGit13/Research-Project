@@ -1,4 +1,4 @@
-clear al; close all; clc;
+
 
 %% Load and clean audio
 % Using actor 8, sentence 256
@@ -12,25 +12,6 @@ dataIdx = 9;  % This corresponds to sub8_sen_256
 nFrames = size(data(dataIdx).mr_warp2D, 2);  % Should be 40 frames
 fprintf('Number of frames: %d\n', nFrames);
 
-% See what fields are in the data structure
-fieldnames(data(9))
-
-
-
-% Check the actual dimensions
-fprintf('MR warp2D dimensions: %d × %d\n', size(data(9).mr_warp2D));
-fprintf('Video warp2D dimensions: %d × %d\n', size(data(9).vid_warp2D));
-fprintf('MR frames cell array: %d frames\n', length(data(9).mr_frames));
-fprintf('Video frames cell array: %d frames\n', length(data(9).video_frames));
-
-mrFrames = data(9).mr_frames;
-% Check if there's any metadata
-whos data
-
-% Check if there are any hidden fields with timing info
-allFields = fieldnames(data(9));
-disp(allFields);
-% Look for anything like 'time', 'fps', 'TR', 'timestamps', etc.
 
 %% Create frame-aligned spectrogram
 % Calculate how much audio per frame
@@ -67,6 +48,20 @@ fprintf('Pooled to: %d frequencies x %d frames\n', ...
         size(audioFeatures, 1), size(audioFeatures, 2));
 
 
+% Save processed audio features to .mat file 
+audioData(dataIdx).audioFeatures = audioFeatures;  % Keep 2D 
+% Save to the data directory:
+save('C:\Users\jaker\Research-Project\data\audioFeaturesData.mat', 'audioData');
+
+% Print statement to show the full save path
+filePath = fullfile(pwd, 'audioFeaturesData.mat');
+fprintf('File saved to: %s\n', filePath);
+
+
+
+%{
+
+
 %% Visualize both spectrograms in the same figure
 figure('Name', 'Spectrogram Comparison');
 
@@ -88,3 +83,4 @@ xlabel('Frame Number');
 ylabel('Frequency Bin');
 title('Frame-aligned Audio Spectrogram (After Pooling)');
 
+%}
