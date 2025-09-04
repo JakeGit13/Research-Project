@@ -21,9 +21,9 @@ load(audioFile,'audioData');      % Audio
 % ---- Controls  ----
 usePar        = true;               % parallel processing if available
 useTrimodal = true;                 % false => bimodal (MR+Video), true => trimodal (MR+Video+Audio)
-reconstructInd = 1;                 % 1 = MR, 2 = Video, 3 = Audio
-shuffleTarget = 3;     % chose which block to shuffle 
-nComp = 30;                         % number of principal components to keep (try 20, 40, 80)
+reconstructId = 1;                 % 1 = MR, 2 = Video, 3 = Audio
+shuffleTarget = 1;     % chose which block to shuffle 
+nComp = 39;                         % number of principal components to keep (try 20, 40, 80)
 nBoots = 500;                       % # bootstraps
 lambda = 1e-3;
 % (Diagnostic) Audio weight multiplier for H1 ablation; set to 1 for default runs.
@@ -203,7 +203,7 @@ for ii = 9 % :length(data)
 
     % ---- Sanity: report frames and enforce nComp<T at the call site too ----
     T = size(mixWarpsW, 2);
-    fprintf('Sanity: useTrimodal=%d | reconstructInd=%d | frames T=%d | nComp=%d\n', useTrimodal, reconstructInd, T, nComp);
+    fprintf('Sanity: useTrimodal=%d | reconstructInd=%d | frames T=%d | nComp=%d\n', useTrimodal, reconstructId, T, nComp);
     if nComp >= T
         error('Degenerate setup: nComp (%d) >= T (%d). Choose a smaller nComp.', nComp, T);
     end
@@ -225,7 +225,7 @@ for ii = 9 % :length(data)
 
     % --- Objective block reconstruction metric (z-space; unit-consistent) ---
     % Hide the target block when inferring scores, using boundaries defined earlier.
-    tarIdx  = (elementBoundaries(reconstructInd)+1) : elementBoundaries(reconstructInd+1);
+    tarIdx  = (elementBoundaries(reconstructId)+1) : elementBoundaries(reconstructId+1);
     obs_idx = true(size(mixWarpsW,1),1);
     obs_idx(tarIdx) = false;
     
@@ -241,10 +241,10 @@ for ii = 9 % :length(data)
     Xhat_w = origPCA * A_obs + origMorphMean;     % reconstructed full data in WEIGHTED z-space
     
     % Undo only the block weight -> back to z-space for the target block
-    XhatB_z = Xhat_w(tarIdx,:) / blockScales(reconstructInd);
+    XhatB_z = Xhat_w(tarIdx,:) / blockScales(reconstructId);
     
     % Ground-truth in z-space for that block
-    switch reconstructInd
+    switch reconstructId
         case 1, XtrueB_z = mrZ;
         case 2, XtrueB_z = vidZ;
         case 3, XtrueB_z = audZ;
@@ -266,18 +266,18 @@ for ii = 9 % :length(data)
     % Dynamic, accurate label
     blkNames = {'MR','Video','Audio'};
     modeName = 'Bimodal (MR+Video)'; if useTrimodal, modeName = 'Trimodal (MR+Video+Audio)'; end
-    present  = [true,true,useTrimodal]; present(reconstructInd) = false;
+    present  = [true,true,useTrimodal]; present(reconstructId) = false;
     fromList = strjoin(blkNames(present), '+');
     
     fprintf('\n[%s] Reconstruct %s from %s | median r(z)=%.4f | vectorised r(z)=%.4f\n', ...
-        modeName, blkNames{reconstructInd}, fromList, r_med, r_vec);
+        modeName, blkNames{reconstructId}, fromList, r_med, r_vec);
 
     % ===============================
     % Non-shuffled reconstruction (faithful to original pattern)
     nFrames = size(thisMRWarp, 2);
     partial_data = mixWarpsW;
     % Zero the block we intend to "reconstruct"
-    partial_data(elementBoundaries(reconstructInd)+1 : elementBoundaries(reconstructInd+1), :) = 0;
+    partial_data(elementBoundaries(reconstructId)+1 : elementBoundaries(reconstructId+1), :) = 0;
 
     % Recompute mean on the partially zeroed data,
     % then recenter and project to get "reconstructed loadings"
@@ -294,7 +294,7 @@ for ii = 9 % :length(data)
     plot(results.nonShuffledLoadings, results.nonShuffledReconLoadings, '.');
     hline = refline(1,0); hline.Color = 'k';
     xlabel('Original loadings'); ylabel('Reconstructed loadings');
-    title(sprintf('Non-shuffled (reconstruct modality %d: 1=MR,2=Video,3=Audio)', reconstructInd));
+    title(sprintf('Non-shuffled (reconstruct modality %d: 1=MR,2=Video,3=Audio)', reconstructId));
 
 
     %% Shuffled reconstructions (bootstrap) — unified loop for r(z) and loadings
@@ -313,8 +313,8 @@ for ii = 9 % :length(data)
 
     
     % Hidden block index range
-    tarIdx  = (elementBoundaries(reconstructInd)+1) : elementBoundaries(reconstructInd+1);
-    switch reconstructInd
+    tarIdx  = (elementBoundaries(reconstructId)+1) : elementBoundaries(reconstructId+1);
+    switch reconstructId
         case 1, XtrueB_z = mrZ;
         case 2, XtrueB_z = vidZ;
         case 3, XtrueB_z = audZ;
@@ -356,7 +356,7 @@ for ii = 9 % :length(data)
             % ---- r(z) side: infer scores from observed rows, reconstruct hidden block ----
             Ak    = infer_scores_from_observed(PCk, mean_k, shuffWarps, obs_idx, 1e-3); % lambda as used above
             Xhatk = PCk * Ak + mean_k;                              % weighted z-space
-            XhatkB_z = Xhatk(tarIdx,:) / blockScales(reconstructInd);
+            XhatkB_z = Xhatk(tarIdx,:) / blockScales(reconstructId);
             r_boot(bootI) = corr(XtrueB_z(:), XhatkB_z(:), 'Rows','complete');
     
             % ---- loadings side: replicate original partial-loadings method ----
@@ -385,7 +385,7 @@ for ii = 9 % :length(data)
     
             Ak    = infer_scores_from_observed(PCk, mean_k, shuffWarps, obs_idx, 1e-3);
             Xhatk = PCk * Ak + mean_k;
-            XhatkB_z = Xhatk(tarIdx,:) / blockScales(reconstructInd);
+            XhatkB_z = Xhatk(tarIdx,:) / blockScales(reconstructId);
             r_boot(bootI) = corr(XtrueB_z(:), XhatkB_z(:), 'Rows','complete');
     
             partial_data_s = shuffWarps;
@@ -447,9 +447,9 @@ for ii = 9 % :length(data)
     obs_idx_none = false(size(mixWarpsW,1),1);
     A0 = infer_scores_from_observed(origPCA, origMorphMean, mixWarpsW, obs_idx_none, 1e-3);
     Xhat0_w  = origPCA * A0 + origMorphMean;
-    tarIdx   = (elementBoundaries(reconstructInd)+1) : elementBoundaries(reconstructInd+1);
-    Xhat0B_z = Xhat0_w(tarIdx,:) / blockScales(reconstructInd);
-    switch reconstructInd
+    tarIdx   = (elementBoundaries(reconstructId)+1) : elementBoundaries(reconstructId+1);
+    Xhat0B_z = Xhat0_w(tarIdx,:) / blockScales(reconstructId);
+    switch reconstructId
         case 1, XtrueB_z = mrZ; case 2, XtrueB_z = vidZ; case 3, XtrueB_z = audZ;
     end
     r_none = corr(XtrueB_z(:), Xhat0B_z(:));
