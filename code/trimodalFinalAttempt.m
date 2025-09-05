@@ -15,7 +15,7 @@ VERBOSE = true;
 
 reconstructId = 1; % 1 = MR, 2 = video, 3 = audio
 
-nBoots = 500; % # bootstraps
+nBoots = 200; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
@@ -132,8 +132,9 @@ for ii = 9%:length(actors)
         permIndexes(bootI,:) = randperm(nFrames);
     end
     
-    allShuffledOrigLoad = cell(1000,1);
-    allShuffledReconLoad = cell(1000,1);
+    allShuffledOrigLoad  = cell(nBoots,1);
+    allShuffledReconLoad = cell(nBoots,1);
+
     
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
@@ -149,9 +150,10 @@ for ii = 9%:length(actors)
         parfor bootI = 1:nBoots
             % ************ Shuffle the AUDIO block only ************
             % (MR and Video stay time-aligned; Audio is time-permuted)
-            shuffWarps = [ w_mr  * thisMRWarp, ;  % unchanged MR
-                           w_vid * thisVidWarp;   % unchanged Video
-                           w_aud * thisAudio(:,permIndexes(bootI,:)) ]; % shuffled Audio
+            shuffWarps = [ w_mr  * thisMRWarp ; ...
+                           w_vid * thisVidWarp; ...
+                           w_aud * thisAudio(:,permIndexes(bootI,:)) ];
+
 
 
             [PCA,MorphMean,loadings] = doPCA(shuffWarps);
@@ -168,6 +170,7 @@ for ii = 9%:length(actors)
     else
         disp('NOT using parallel processing...');
     end
+    
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
     toc 
@@ -196,6 +199,19 @@ for ii = 9%:length(actors)
         
         shuffstats(:,bootI) = [R p(1) SSE];
     end
+
+
+    % After computing unshuffstats (R, slope, SSE) and shuffstats:
+    p_R    = mean(shuffstats(1,:) >= unshuffstats(1));
+    p_slope= mean(shuffstats(2,:) >= unshuffstats(2));
+    p_SSE  = mean(shuffstats(3,:) <= unshuffstats(3)); % SSE lower is better
+    
+    if VERBOSE
+        fprintf('Loadings-space stats (unshuffled): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
+                unshuffstats(1), unshuffstats(2), unshuffstats(3));
+        fprintf('Permutation p-values: p_R=%.3g, p_slope=%.3g, p_SSE=%.3g\n', p_R, p_slope, p_SSE);
+    end
+
     
     % Display ************************************************************************************************************************
     
