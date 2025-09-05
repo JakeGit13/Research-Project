@@ -167,26 +167,10 @@ for ii = 9%:length(actors)
         end
     else
         disp('NOT using parallel processing...');
-        
-        for bootI = 1:nBoots
-            % ************ Shuffle the MR warps ************ but keep the (time-matched) warps from the video
-            shuffWarps = [w_mr * thisMRWarp(:,permIndexes(bootI,:));  w_vid * thisVidWarp];
-
-            [PCA,MorphMean,loadings] = doPCA(shuffWarps);
-            
-            partial_data = shuffWarps;
-            partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % set the MR section to 0
-            partialMorphMean = mean(partial_data, 2);
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
-            partial_loading = partial_centered'*PCA;
-            
-            allShuffledOrigLoad{bootI} = loadings;
-            allShuffledReconLoad{bootI} = partial_loading;
-        end
     end
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
-    toc
+    toc 
     
     % Statistics ************************************************************************************************************************
     
