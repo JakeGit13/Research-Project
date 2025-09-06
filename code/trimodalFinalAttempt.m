@@ -9,11 +9,14 @@ dataFile = 'mrAndVideoData.mat';
 audioFile = 'audioFeaturesData_articulatory.mat';
 
 
-usePar = true; % set to false if parallel processing isn't required/working
+usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
 VERBOSE = true;
 
 
-reconstructId = 1; % 1 = MR, 2 = video, 3 = audio
+reconstructId = 3; % 1 = MR, 2 = video, 3 = audio
+shuffleTarget = 3;   % 1 = MR, 2 = video, 3 = audio
+
+
 
 nBoots = 200; % # bootstraps
 % ******************************************************************************************************************************************************
@@ -101,6 +104,14 @@ for ii = 9%:length(actors)
     nFrames = T;  % already defined above
 
 
+    if VERBOSE
+
+        blockNames    = {'MR','Video','Audio'};     % Bit overkill
+        fprintf('Hidden/target block: %s | Shuffle target: %s\n', ...
+            blockNames{reconstructId}, blockNames{shuffleTarget});
+    end
+
+
     partial_data = mixWarps;
     partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % Set one modality to 0
     partialMorphMean = mean(partial_data, 2);
@@ -148,12 +159,30 @@ for ii = 9%:length(actors)
         end
         
         parfor bootI = 1:nBoots
-            % ************ Shuffle the AUDIO block only ************
-            % (MR and Video stay time-aligned; Audio is time-permuted)
-            shuffWarps = [ w_mr  * thisMRWarp ; ...
-                           w_vid * thisVidWarp; ...
-                           w_aud * thisAudio(:,permIndexes(bootI,:)) ];
+            
+            %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
 
+            switch shuffleTarget
+                case 1  % shuffle MR frames
+                    shMR  = thisMRWarpW(:, permIndexes(bootI,:));
+                    shVID = thisVidWarpW;
+                    shAUD = thisAudioW;
+                case 2  % shuffle Video frames
+                    shMR  = thisMRWarpW;
+                    shVID = thisVidWarpW(:, permIndexes(bootI,:));
+                    shAUD = thisAudioW;
+                case 3  % shuffle Audio frames
+                    shMR  = thisMRWarpW;
+                    shVID = thisVidWarpW;
+                    shAUD = thisAudioW(:, permIndexes(bootI,:));
+                otherwise
+                    error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
+            end
+            shuffWarps = [shMR; shVID; shAUD];
+
+            if VERBOSE && bootI==1
+                fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
+            end
 
 
             [PCA,MorphMean,loadings] = doPCA(shuffWarps);
