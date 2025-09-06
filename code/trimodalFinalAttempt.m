@@ -117,6 +117,44 @@ for ii = 9%:length(actors)
     partialMorphMean = mean(partial_data, 2);
     partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
     partial_loading = partial_centered'*origPCA;
+
+    %% === H1 Audio feature-space metrics (UNSHUFFLED) =======================
+    idx1 = elementBoundaries(reconstructId)+1;
+    idx2 = elementBoundaries(reconstructId+1);
+    
+    % Audio rows of PCA basis (k columns), and centred Audio (match projection centring)
+    P_audio       = origPCA(idx1:idx2, :);                                      % p_aud x k
+    X_audio_true  = bsxfun(@minus, mixWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
+    X_audio_hat   = P_audio * (partial_loading.');                               % p_aud x T
+    
+    % Vectorised correlation (primary H1 metric)
+    a = zscore(X_audio_true(:));
+    b = zscore(X_audio_hat(:));
+    vecR_real = corr(a, b);
+    
+    % Row-wise correlations (omit constant rows)
+    rowR = nan(size(X_audio_true,1),1);
+    for rr = 1:size(X_audio_true,1)
+        aa = X_audio_true(rr,:).';  bb = X_audio_hat(rr,:).';
+        if std(aa)>0 && std(bb)>0
+            rowR(rr) = corr(aa,bb);
+        end
+    end
+    medRowR_real = median(rowR,'omitnan');
+    
+    % SSE in audio block
+    SSE_real = sum((X_audio_true(:) - X_audio_hat(:)).^2);
+    
+    % Store + print
+    results.h1_vecR_real    = vecR_real;
+    results.h1_medRowR_real = medRowR_real;
+    results.h1_SSE_real     = SSE_real;
+    
+    if VERBOSE
+        fprintf('H1 (Audio) UNSHUFFLED: vecR=%.4f | median rowR=%.4f | SSE=%.3e\n', ...
+                vecR_real, medRowR_real, SSE_real);
+    end
+
     
     % Store the loadings for further processing
     results.nonShuffledLoadings = origloadings;
@@ -143,6 +181,10 @@ for ii = 9%:length(actors)
         permIndexes(bootI,:) = randperm(nFrames);
     end
     
+    shuffAudioVecR = nan(1,nBoots);   % H1 metric per shuffle (vectorised r)
+
+
+
     allShuffledOrigLoad  = cell(nBoots,1);
     allShuffledReconLoad = cell(nBoots,1);
 
@@ -192,6 +234,20 @@ for ii = 9%:length(actors)
             partialMorphMean = mean(partial_data, 2);
             partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
             partial_loading = partial_centered'*PCA;
+
+
+            %% === H1 Audio feature-space metric (SHUFFLED) ==========================
+            idx1 = elementBoundaries(reconstructId)+1;
+            idx2 = elementBoundaries(reconstructId+1);
+            
+            P_audio       = PCA(idx1:idx2, :);
+            X_audio_true  = bsxfun(@minus, shuffWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
+            X_audio_hat   = P_audio * (partial_loading.');
+            
+            aa = zscore(X_audio_true(:));
+            bb = zscore(X_audio_hat(:));
+            shuffAudioVecR(bootI) = corr(aa, bb);
+
             
             allShuffledOrigLoad{bootI} = loadings;
             allShuffledReconLoad{bootI} = partial_loading;
@@ -204,8 +260,26 @@ for ii = 9%:length(actors)
     results.allShuffledReconLoad = allShuffledReconLoad;
     toc 
     
-    % Statistics ************************************************************************************************************************
+    %% Statistics ************************************************************************************************************************
     
+    % === H1 Audio vectorised r: shuffle summary ============================
+    realVecR = results.h1_vecR_real;
+    sh_med   = median(shuffAudioVecR,'omitnan');
+    sh_ci    = prctile(shuffAudioVecR,[2.5 97.5]);
+    p_vecR   = mean(shuffAudioVecR >= realVecR);   % one-sided: shuffle >= real
+    
+    results.h1_vecR_shuff_all = shuffAudioVecR;
+    results.h1_vecR_p         = p_vecR;
+    results.h1_vecR_ci        = sh_ci;
+    
+    if VERBOSE
+        fprintf('H1 (Audio) vectorised r: real=%.4f | shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n', ...
+                realVecR, sh_med, sh_ci(1), sh_ci(2), p_vecR);
+    end
+
+
+
+
     % Unshuffled
     loadings1D = results.nonShuffledLoadings(:);
     reconLoadings1D = results.nonShuffledReconLoadings(:);
