@@ -140,6 +140,16 @@ for ii = 9%:length(actors)
     
     % SSE in audio block
     SSE_real = sum((X_audio_true(:) - X_audio_hat(:)).^2);
+
+    SSE0_real = sum(X_audio_true(:).^2);
+    VAF_real  = 1 - SSE_real / SSE0_real;   % in the weighted/centred space
+    
+    results.h1_VAF_real = VAF_real;
+    
+    if VERBOSE
+        fprintf('H1 (Audio) UNSHUFFLED: VAF=%.1f%% (space=weighted/centred)\n', 100*VAF_real);
+    end
+
     
     % Store + print
     results.h1_vecR_real    = vecR_real;
@@ -165,8 +175,8 @@ for ii = 9%:length(actors)
     end
     
     % Compute vectorised r for each evaluation-only shuffle
-    shuffAudioVecR_eval = nan(1, nBoots); %#ok<NASGU>  % placeholder to avoid typos
     shuffAudioVecR_eval = nan(1, nBoots);
+    shuffAudioVAF_eval  = nan(1, nBoots); 
     
     % Use parallel if available (cheap either way)
     nCores = feature('numcores');
@@ -176,13 +186,12 @@ for ii = 9%:length(actors)
             aa = zscore(Xa_true_sh(:));
             bb = zscore(X_audio_hat(:));                      % fixed reconstruction from MR+Video
             shuffAudioVecR_eval(b) = corr(aa, bb);
-        end
-    else
-        for b = 1:nBoots
-            Xa_true_sh = X_audio_true(:, permIdx_eval(b,:));
-            aa = zscore(Xa_true_sh(:));
-            bb = zscore(X_audio_hat(:));
-            shuffAudioVecR_eval(b) = corr(aa, bb);
+
+            % after you build Xa_true_sh
+            SSE_sh = sum((Xa_true_sh(:) - X_audio_hat(:)).^2);
+            VAF_sh = 1 - SSE_sh / SSE0_real;
+            shuffAudioVAF_eval(b) = VAF_sh;
+
         end
     end
     
@@ -192,17 +201,23 @@ for ii = 9%:length(actors)
     sh_ci_eval    = prctile(shuffAudioVecR_eval, [2.5 97.5]);
     p_vecR_eval   = mean(shuffAudioVecR_eval >= realVecR_eval);  % one-sided (>=)
     
-    % Store + print
-    results.h1_eval_vecR_real   = realVecR_eval;
-    results.h1_eval_vecR_shuffs = shuffAudioVecR_eval;
-    results.h1_eval_vecR_p      = p_vecR_eval;
-    results.h1_eval_vecR_ci     = sh_ci_eval;
+    VAF_med_eval = median(shuffAudioVAF_eval,'omitnan');
+    VAF_ci_eval  = prctile(shuffAudioVAF_eval,[2.5 97.5]);
+    p_VAF_eval   = mean(shuffAudioVAF_eval >= VAF_real);   % one-sided (>=)
+    
+    results.h1_eval_VAF_real   = VAF_real;
+    results.h1_eval_VAF_shuffs = shuffAudioVAF_eval;
+    results.h1_eval_VAF_p      = p_VAF_eval;
+    results.h1_eval_VAF_ci     = VAF_ci_eval;
     
     if VERBOSE
-        fprintf(['H1 (Audio) vectorised r — EVAL-ONLY: real=%.4f | ' ...
-                 'shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n'], ...
-                 realVecR_eval, sh_med_eval, sh_ci_eval(1), sh_ci_eval(2), p_vecR_eval);
+        fprintf(['H1 (Audio) VAF — EVAL-ONLY: real=%.1f%% | shuffle median=%.1f%% | ' ...
+                 '95%% CI=[%.1f%%, %.1f%%] | p=%.3g\n'], ...
+                100*VAF_real, 100*VAF_med_eval, 100*VAF_ci_eval(1), 100*VAF_ci_eval(2), p_VAF_eval);
     end
+
+
+
 
 
 
