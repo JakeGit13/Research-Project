@@ -1,4 +1,4 @@
-function trimodalFinalAttempt
+function trimodalH2
 
 clc;
 
@@ -11,9 +11,19 @@ usePar = true; % remove this as no option for series processing, not sure if tha
 VERBOSE = true;
 
 
-reconstructId = 1; % 1 = MR, 2 = video, 3 = audio
-shuffleTarget = 1;   % 1 = MR, 2 = video, 3 = audio
-blockNames = {'MR','Video','Audio'};
+% === H2: choose the hidden visual target ===
+reconstructId = 2; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
+shuffleTarget  = 3; % H2 null: shuffle Audio only (Tri-ShufA)
+
+if ~(reconstructId==1 || reconstructId==2)
+    error('H2: reconstructId must be 1 (MR) or 2 (Video).');
+end
+if shuffleTarget ~= 3
+    error('H2: shuffleTarget must be 3 (Audio) for Tri-ShufA.');
+end
+blockNames = {'MR','Video','Audio'}; % used in prints
+
+
 
 
 nBoots = 1000; % # bootstraps
@@ -112,107 +122,19 @@ for ii = 9%:length(actors)
     partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
     partial_loading = partial_centered'*origPCA;
 
-    %% === H1 Audio feature-space metrics (UNSHUFFLED) =======================
-    idx1 = elementBoundaries(reconstructId)+1;
-    idx2 = elementBoundaries(reconstructId+1);
-    
-    % Audio rows of PCA basis (k columns), and centred Audio (match projection centring)
-    P_audio       = origPCA(idx1:idx2, :);                                      % p_aud x k
-    X_audio_true  = bsxfun(@minus, mixWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
-    X_audio_hat   = P_audio * (partial_loading.');                               % p_aud x T
-    
-    % Vectorised correlation (primary H1 metric)
-    a = zscore(X_audio_true(:));
-    b = zscore(X_audio_hat(:));
-    vecR_real = corr(a, b);
-    
-    % Row-wise correlations (omit constant rows)
-    rowR = nan(size(X_audio_true,1),1);
-    for rr = 1:size(X_audio_true,1)
-        aa = X_audio_true(rr,:).';  bb = X_audio_hat(rr,:).';
-        if std(aa)>0 && std(bb)>0
-            rowR(rr) = corr(aa,bb);
-        end
-    end
-    medRowR_real = median(rowR,'omitnan');
-    
-    % SSE in audio block
-    SSE_real = sum((X_audio_true(:) - X_audio_hat(:)).^2);
-
-    SSE0_real = sum(X_audio_true(:).^2);
-    VAF_real  = 1 - SSE_real / SSE0_real;   % in the weighted/centred space
-    
-    results.h1_VAF_real = VAF_real;
-    
+    %% === H2 Tri-real: loadings-space only (paper-faithful) =================
+    % We keep the unshuffled original vs reconstructed loadings for Tri.
+    % (Stats are computed later in the common "Statistics" section.)
     if VERBOSE
-        fprintf('H1 (Audio) UNSHUFFLED: VAF=%.1f%% (space=weighted/centred)\n', 100*VAF_real);
-    end
-
-    
-    % Store + print
-    results.h1_vecR_real    = vecR_real;
-    results.h1_medRowR_real = medRowR_real;
-    results.h1_SSE_real     = SSE_real;
-    
-    if VERBOSE
-        fprintf('H1 (Audio) UNSHUFFLED: vecR=%.4f | median rowR=%.4f | SSE=%.3e\n', ...
-                vecR_real, medRowR_real, SSE_real);
+        obsIdx = setdiff([1 2 3], reconstructId, 'stable'); % observed blocks in order
+        fprintf('H2 Tri-real: target=%s | observed = %s + %s\n', ...
+            blockNames{reconstructId}, blockNames{obsIdx(1)}, blockNames{obsIdx(2)});
     end
 
 
-    %% === H1 feature-space shuffle-null (EVALUATION-ONLY; NO REFIT) ==========
-    % Keep origPCA and partial_loading fixed; only permute the TRUE audio.
-    if VERBOSE
-        fprintf('H1 eval-only null: model fixed; permuting audio frames at evaluation only.\n');
-    end
-    
-    % Build permutations over the same nFrames
-    permIdx_eval = NaN(nBoots, nFrames);
-    for b = 1:nBoots
-        permIdx_eval(b,:) = randperm(nFrames);
-    end
-    
-    % Compute vectorised r for each evaluation-only shuffle
-    shuffAudioVecR_eval = nan(1, nBoots);
-    shuffAudioVAF_eval  = nan(1, nBoots); 
-    
-    % Use parallel if available (cheap either way)
-    nCores = feature('numcores');
-    if usePar && nCores > 2
-        parfor b = 1:nBoots
-            Xa_true_sh = X_audio_true(:, permIdx_eval(b,:));  % permuted true audio
-            aa = zscore(Xa_true_sh(:));
-            bb = zscore(X_audio_hat(:));                      % fixed reconstruction from MR+Video
-            shuffAudioVecR_eval(b) = corr(aa, bb);
 
-            % after you build Xa_true_sh
-            SSE_sh = sum((Xa_true_sh(:) - X_audio_hat(:)).^2);
-            VAF_sh = 1 - SSE_sh / SSE0_real;
-            shuffAudioVAF_eval(b) = VAF_sh;
+    % (H2) No evaluation-only audio null here; H2 uses refit-permutation on Audio (Tri-ShufA).
 
-        end
-    end
-    
-    % Summarise this H1-appropriate null
-    realVecR_eval = vecR_real;
-    sh_med_eval   = median(shuffAudioVecR_eval, 'omitnan');
-    sh_ci_eval    = prctile(shuffAudioVecR_eval, [2.5 97.5]);
-    p_vecR_eval   = mean(shuffAudioVecR_eval >= realVecR_eval);  % one-sided (>=)
-    
-    VAF_med_eval = median(shuffAudioVAF_eval,'omitnan');
-    VAF_ci_eval  = prctile(shuffAudioVAF_eval,[2.5 97.5]);
-    p_VAF_eval   = mean(shuffAudioVAF_eval >= VAF_real);   % one-sided (>=)
-    
-    results.h1_eval_VAF_real   = VAF_real;
-    results.h1_eval_VAF_shuffs = shuffAudioVAF_eval;
-    results.h1_eval_VAF_p      = p_VAF_eval;
-    results.h1_eval_VAF_ci     = VAF_ci_eval;
-    
-    if VERBOSE
-        fprintf(['H1 (Audio) VAF — EVAL-ONLY: real=%.1f%% | shuffle median=%.1f%% | ' ...
-                 '95%% CI=[%.1f%%, %.1f%%] | p=%.3g\n'], ...
-                100*VAF_real, 100*VAF_med_eval, 100*VAF_ci_eval(1), 100*VAF_ci_eval(2), p_VAF_eval);
-    end
 
 
 
@@ -223,7 +145,41 @@ for ii = 9%:length(actors)
     % Store the loadings for further processing
     results.nonShuffledLoadings = origloadings;
     results.nonShuffledReconLoadings = partial_loading;
+
+
+    %% === H2 Bi baseline: fit on MR+Video only, same MR/Video weights =======
+    % Reuse w_mr and w_vid from Tri to keep MR/Video scaling comparable.
+    mixWarpsBi = [ (w_mr  * thisMRWarp); (w_vid * thisVidWarp) ];
     
+    % PCA on Bi
+    [origPCA_bi, origMorphMean_bi, origloadings_bi] = doPCA(mixWarpsBi);
+    
+    % Boundaries for Bi (no Audio rows here)
+    bMR  = size(w_mr  * thisMRWarp, 1);
+    bVID = size(w_vid * thisVidWarp, 1);
+    elementBoundariesBi = [0, bMR, bMR + bVID];
+    
+    % Zero the target block within Bi
+    partial_data_bi = mixWarpsBi;
+    partial_data_bi(elementBoundariesBi(reconstructId)+1 : elementBoundariesBi(reconstructId+1), :) = 0;
+    partialMorphMean_bi = mean(partial_data_bi, 2);
+    partial_centered_bi = bsxfun(@minus, partial_data_bi, partialMorphMean_bi);
+    partial_loading_bi  = partial_centered_bi' * origPCA_bi;
+    
+    % Compute Bi stats now (R, slope, SSE) so we can print them later
+    loadings1D_bi      = origloadings_bi(:);
+    reconLoadings1D_bi = partial_loading_bi(:);
+    SSE_bi  = sum((loadings1D_bi - reconLoadings1D_bi).^2);
+    [R_bi,~] = corr(loadings1D_bi, reconLoadings1D_bi);
+    p_bi    = polyfit(loadings1D_bi, reconLoadings1D_bi, 1);
+    slope_bi = p_bi(1);
+    
+    if VERBOSE
+        fprintf('H2 Bi baseline: target=%s | R=%.4f, slope=%.4f, SSE=%.3e\n', ...
+            blockNames{reconstructId}, R_bi, slope_bi, SSE_bi);
+    end
+    
+        
     % Display ************************************************************************************************************************
     
     figure;
@@ -245,7 +201,8 @@ for ii = 9%:length(actors)
         permIndexes(bootI,:) = randperm(nFrames);
     end
     
-    shuffAudioVecR = nan(1,nBoots);   % H1 metric per shuffle (vectorised r)
+    % (H2) No audio feature-space metric per shuffle needed.
+
 
 
 
@@ -300,17 +257,8 @@ for ii = 9%:length(actors)
             partial_loading = partial_centered'*PCA;
 
 
-            %% === H1 Audio feature-space metric (SHUFFLED) ==========================
-            idx1 = elementBoundaries(reconstructId)+1;
-            idx2 = elementBoundaries(reconstructId+1);
-            
-            P_audio       = PCA(idx1:idx2, :);
-            X_audio_true  = bsxfun(@minus, shuffWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
-            X_audio_hat   = P_audio * (partial_loading.');
-            
-            aa = zscore(X_audio_true(:));
-            bb = zscore(X_audio_hat(:));
-            shuffAudioVecR(bootI) = corr(aa, bb);
+            % (H2) No audio feature-space metric here; loadings-space stats are computed after the loop.
+
 
             
             allShuffledOrigLoad{bootI} = loadings;
@@ -326,20 +274,8 @@ for ii = 9%:length(actors)
     
     %% Statistics ************************************************************************************************************************
     
-    % === H1 Audio vectorised r: shuffle summary ============================
-    realVecR = results.h1_vecR_real;
-    sh_med   = median(shuffAudioVecR,'omitnan');
-    sh_ci    = prctile(shuffAudioVecR,[2.5 97.5]);
-    p_vecR   = mean(shuffAudioVecR >= realVecR);   % one-sided: shuffle >= real
-    
-    results.h1_vecR_shuff_all = shuffAudioVecR;
-    results.h1_vecR_p         = p_vecR;
-    results.h1_vecR_ci        = sh_ci;
-    
-    if VERBOSE
-        fprintf('H1 (Audio) vectorised r: real=%.4f | shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n', ...
-                realVecR, sh_med, sh_ci(1), sh_ci(2), p_vecR);
-    end
+    % (H2) No audio feature-space summary; proceed to loadings-space stats for H2.
+
 
 
 
@@ -374,10 +310,13 @@ for ii = 9%:length(actors)
     p_SSE  = mean(shuffstats(3,:) <= unshuffstats(3)); % SSE lower is better
     
     if VERBOSE
-        fprintf('Loadings-space stats (unshuffled): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
-                unshuffstats(1), unshuffstats(2), unshuffstats(3));
-        fprintf('Permutation p-values: p_R=%.3g, p_slope=%.3g, p_SSE=%.3g\n', p_R, p_slope, p_SSE);
+        fprintf('H2 Tri-real (target=%s): R=%.4f, slope=%.4f, SSE=%.3e | vs Tri-ShufA p: [R=%.3g, slope=%.3g, SSE=%.3g]\n', ...
+            blockNames{reconstructId}, unshuffstats(1), unshuffstats(2), unshuffstats(3), p_R, p_slope, p_SSE);
+    
+        fprintf('H2 Bi baseline (target=%s): R=%.4f, slope=%.4f, SSE=%.3e | ΔR=%.4f, ΔSSE=%.3e (Tri−Bi)\n', ...
+            blockNames{reconstructId}, R_bi, slope_bi, SSE_bi, unshuffstats(1) - R_bi, unshuffstats(3) - SSE_bi);
     end
+
 
     
     % Display ************************************************************************************************************************

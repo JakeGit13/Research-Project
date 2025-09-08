@@ -11,17 +11,19 @@ usePar = true; % remove this as no option for series processing, not sure if tha
 VERBOSE = true;
 
 
-reconstructId = 1; % 1 = MR, 2 = video, 3 = audio
-shuffleTarget = 1;   % 1 = MR, 2 = video, 3 = audio
+reconstructId = 3; % 1 = MR, 2 = video, 3 = audio
+shuffleTarget = 3;   % 1 = MR, 2 = video, 3 = audio
 blockNames = {'MR','Video','Audio'};
 
 
-nBoots = 1000; % # bootstraps
+nBoots = 200; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
 % Reset random seed
 rng('default');
+
+dataFile = 'mrAndVideoData.mat';
 
 addpath(dataDir) % Add the user-defined data directory to the path 
 load(dataFile,'data');          % MR + video
@@ -48,7 +50,7 @@ for ii = 9%:length(actors)
         fprintf('Item %d\n', ii);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
-        fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
+        fprintf('Audio: %d features x %d frames\n', size(thisAudio,1),   T);
     end
 
 
