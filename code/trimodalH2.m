@@ -4,7 +4,7 @@ clc;
 
 dataDir = '/Users/jaker/Research-Project/data';
 dataFile = 'mrAndVideoData.mat';
-audioFile = 'audioFeaturesData_articulatory.mat';
+audioFile = 'audioFeaturesData.mat';
 
 
 usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
@@ -26,7 +26,7 @@ blockNames = {'MR','Video','Audio'}; % used in prints
 
 
 
-nBoots = 1000; % # bootstraps
+nBoots = 500; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
@@ -50,7 +50,7 @@ for ii = 9%:length(actors)
     %% === Load/Assemble Blocks ===
     thisMRWarp  = data(ii).mr_warp2D;                         % (p_mr x T)
     thisVidWarp = data(ii).vid_warp2D;                        % (p_vid x T)
-    thisAudio   = audioData(ii).audioFeatures_articulatory';  % (p_aud x T)
+    thisAudio   = audioData(ii).audioFeatures';  % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 

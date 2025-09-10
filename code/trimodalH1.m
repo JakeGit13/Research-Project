@@ -1,29 +1,37 @@
-function trimodalFinalAttempt
+function trimodalH1
 
 clc;
 
 dataDir = '/Users/jaker/Research-Project/data';
 dataFile = 'mrAndVideoData.mat';
-audioFile = 'audioFeaturesData_articulatory.mat';
+audioFile = 'audioFeaturesData.mat';
 
 
 usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
 VERBOSE = true;
 
+reconstructId = 3;   % H1 target: must be 3 (Audio)
+shuffleTarget  = 3;  % H1 eval-only + (optional) refit-permutation use Audio
 
-reconstructId = 3; % 1 = MR, 2 = video, 3 = audio
-shuffleTarget = 3;   % 1 = MR, 2 = video, 3 = audio
+% H1 source–contribution: which observed block(s) may inform the scores?
+% Options: 'MR+Video' (default), 'MR-only', 'Video-only'
+observedMode = 'MR+Video'; % Feel like theres a better way to do this 
+    
+if reconstructId ~= 3
+    error('H1 source–contribution requires reconstructId==3 (Audio as target).');
+end
+if ~ismember(observedMode, {'MR+Video','MR-only','Video-only'})
+    error('observedMode must be ''MR+Video'', ''MR-only'', or ''Video-only''.');
+end
 blockNames = {'MR','Video','Audio'};
 
 
-nBoots = 200; % # bootstraps
+nBoots = 500; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
 % Reset random seed
 rng('default');
-
-dataFile = 'mrAndVideoData.mat';
 
 addpath(dataDir) % Add the user-defined data directory to the path 
 load(dataFile,'data');          % MR + video
@@ -32,6 +40,14 @@ load(audioFile,'audioData');   % Audio
 
 actors = [data.actor]; % Array of actor numbers
 sentences = [data.sentence]; % Array of sentence numbers
+
+
+
+
+
+
+
+
 
 %% PCA on hybrid facial video and vocal-tract MR images
 
@@ -42,7 +58,7 @@ for ii = 9%:length(actors)
     %% === Load/Assemble Blocks ===
     thisMRWarp  = data(ii).mr_warp2D;                         % (p_mr x T)
     thisVidWarp = data(ii).vid_warp2D;                        % (p_vid x T)
-    thisAudio   = audioData(ii).audioFeatures_articulatory';  % (p_aud x T)
+    thisAudio   = audioData(ii).audioFeatures';  % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
@@ -50,7 +66,7 @@ for ii = 9%:length(actors)
         fprintf('Item %d\n', ii);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
-        fprintf('Audio: %d features x %d frames\n', size(thisAudio,1),   T);
+        fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
     end
 
 
@@ -108,11 +124,43 @@ for ii = 9%:length(actors)
     end
 
 
+    % Start from the fused (weighted) data
     partial_data = mixWarps;
-    partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % Set one modality to 0
+    
+    % Always hide the target (Audio rows)
+    a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
+    partial_data(a1:a2, :) = 0;
+    
+    % Apply source–contribution mask to observed blocks
+    m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
+    v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
+    switch observedMode
+        case 'MR-only'
+            % Zero Video as well (scores inferred from MR only)
+            partial_data(v1:v2, :) = 0;
+        case 'Video-only'
+            % Zero MR as well (scores inferred from Video only)
+            partial_data(m1:m2, :) = 0;
+        case 'MR+Video'
+            % keep both as observed
+    end
+    
+    % Projection-based score inference (paper-faithful)
     partialMorphMean = mean(partial_data, 2);
     partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
-    partial_loading = partial_centered'*origPCA;
+    partial_loading  = partial_centered' * origPCA;
+    
+    if VERBOSE
+        fprintf('H1 observedMode = %s (scores inferred from %s)\n', ...
+            observedMode, observedMode);
+    end
+
+
+
+
+
+
+
 
     %% === H1 Audio feature-space metrics (UNSHUFFLED) =======================
     idx1 = elementBoundaries(reconstructId)+1;
@@ -217,11 +265,6 @@ for ii = 9%:length(actors)
     end
 
 
-
-
-
-
-    
     % Store the loadings for further processing
     results.nonShuffledLoadings = origloadings;
     results.nonShuffledReconLoadings = partial_loading;
@@ -296,10 +339,27 @@ for ii = 9%:length(actors)
             [PCA,MorphMean,loadings] = doPCA(shuffWarps);
             
             partial_data = shuffWarps;
-            partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % zero the target block
+            
+            % Always hide the target (Audio rows)
+            a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
+            partial_data(a1:a2, :) = 0;
+            
+            % Apply the same observedMode to the shuffled fusion
+            m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
+            v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
+            switch observedMode
+                case 'MR-only'
+                    partial_data(v1:v2, :) = 0;
+                case 'Video-only'
+                    partial_data(m1:m2, :) = 0;
+                case 'MR+Video'
+                    % keep both
+            end
+            
             partialMorphMean = mean(partial_data, 2);
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
-            partial_loading = partial_centered'*PCA;
+            partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
+            partial_loading  = partial_centered' * PCA;
+
 
 
             %% === H1 Audio feature-space metric (SHUFFLED) ==========================
