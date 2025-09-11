@@ -205,7 +205,7 @@ for frameIdx = 1:nFrames
         'Method', 'NCF', ...
         'WindowLength', winSamp, ...  % Use scalar length, not vector
         'OverlapLength', winSamp - hopSamp, ...
-        'Range', [50 400]);
+        'Range', [50 300]);
     
     f0_voiced = f0(f0 > 0);
     
@@ -280,7 +280,7 @@ for frameIdx = 1:nFrames
     
     spectralRolloffVals = spectralRolloffPoint(frameAudio, FS, ...
         'Window', hammingWin, ...
-        'OverlapLength', winSamp - hopSamp);
+        'OverlapLength', winSamp - hopSamp, 'Threshold', 0.85);
     
     spectralEntropyVals = spectralEntropy(frameAudio, FS, ...
         'Window', hammingWin, ...
@@ -356,9 +356,9 @@ fprintf('  - Spectral shape features: %d features\n', 5*5 + 1);
 fprintf('  - Raw spectral snapshots: %d features\n', 10*64);
 fprintf('  TOTAL: %d features per frame\n', featuresPerFrame);
 
-%% Save (NO normalization - that's for PCA script)
-audioData(dataIdx).audioFeatures_articulatory = allFrameFeatures;
+%% Save to file 
+audioData(dataIdx).audioFeatures = allFrameFeatures;
 
-save('C:\Users\jaker\Research-Project\data\audioFeaturesData_articulatory.mat', 'audioData');
-fprintf('\n[INFO] Saved raw features to: audioFeaturesData_articulatory.mat\n');
+save('C:\Users\jaker\Research-Project\data\audioFeaturesData.mat', 'audioData');
+fprintf('\n[INFO] Saved raw features to: audioFeaturesData.mat\n');
 fprintf('[INFO] Features are NOT normalized - normalization should be done in PCA script\n');

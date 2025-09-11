@@ -115,12 +115,21 @@ for ii = 9%:length(actors)
             blockNames{reconstructId}, blockNames{shuffleTarget});
     end
 
-
-    partial_data = mixWarps;
-    partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % Set one modality to 0
-    partialMorphMean = mean(partial_data, 2);
-    partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
+    % Centre first by the PCA-fit mean, then mask, then project
+    partialMorphMean = origMorphMean;
+    partial_centered = bsxfun(@minus, mixWarps, partialMorphMean);
+    
+    % Zero the hidden target block (MR if 1, Video if 2)
+    t1 = elementBoundaries(reconstructId)+1;
+    t2 = elementBoundaries(reconstructId+1);
+    partial_centered(t1:t2, :) = 0;
+    
+    % Sanity: hidden rows must be zero
+    assert(norm(partial_centered(t1:t2,:),'fro')==0, 'Hidden target rows not zero after masking.');
+    
     partial_loading = partial_centered'*origPCA;
+
+
 
     %% === H2 Tri-real: loadings-space only (paper-faithful) =================
     % We keep the unshuffled original vs reconstructed loadings for Tri.
@@ -160,11 +169,17 @@ for ii = 9%:length(actors)
     elementBoundariesBi = [0, bMR, bMR + bVID];
     
     % Zero the target block within Bi
-    partial_data_bi = mixWarpsBi;
-    partial_data_bi(elementBoundariesBi(reconstructId)+1 : elementBoundariesBi(reconstructId+1), :) = 0;
-    partialMorphMean_bi = mean(partial_data_bi, 2);
-    partial_centered_bi = bsxfun(@minus, partial_data_bi, partialMorphMean_bi);
-    partial_loading_bi  = partial_centered_bi' * origPCA_bi;
+    % Centre first in Bi space, then mask, then project
+    partialMorphMean_bi = origMorphMean_bi;
+    partial_centered_bi = bsxfun(@minus, mixWarpsBi, partialMorphMean_bi);
+    
+    tb1 = elementBoundariesBi(reconstructId)+1;
+    tb2 = elementBoundariesBi(reconstructId+1);
+    partial_centered_bi(tb1:tb2, :) = 0;
+    
+    assert(norm(partial_centered_bi(tb1:tb2,:),'fro')==0, 'Hidden target rows not zero in Bi after masking.');
+    
+    partial_loading_bi = partial_centered_bi' * origPCA_bi;
     
     % Compute Bi stats now (R, slope, SSE) so we can print them later
     loadings1D_bi      = origloadings_bi(:);
@@ -250,14 +265,16 @@ for ii = 9%:length(actors)
 
             [PCA,MorphMean,loadings] = doPCA(shuffWarps);
             
-            partial_data = shuffWarps;
-            partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % zero the target block
-            partialMorphMean = mean(partial_data, 2);
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
-            partial_loading = partial_centered'*PCA;
-
-
-            % (H2) No audio feature-space metric here; loadings-space stats are computed after the loop.
+            % Centre first by the PCA-fit mean, then mask the hidden target, then project
+            partial_centered = bsxfun(@minus, shuffWarps, MorphMean);
+            
+            ts1 = elementBoundaries(reconstructId)+1;
+            ts2 = elementBoundaries(reconstructId+1);
+            partial_centered(ts1:ts2, :) = 0;
+            
+            assert(norm(partial_centered(ts1:ts2,:),'fro')==0, 'Hidden target rows not zero (Tri-ShufA).');
+            
+            partial_loading = partial_centered' * PCA;
 
 
             
