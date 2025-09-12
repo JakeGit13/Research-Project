@@ -15,7 +15,7 @@ shuffleTarget  = 3;  % H1 eval-only + (optional) refit-permutation use Audio
 
 % H1 source–contribution: which observed block(s) may inform the scores?
 % Options: 'MR+VID' (default), 'MR', 'VID'
-observedMode = 'MR';
+observedMode = 'MR+VID';
     
 if reconstructId ~= 3
     error('H1 source–contribution requires reconstructId==3 (Audio as target).');
@@ -26,7 +26,7 @@ end
 blockNames = {'MR','Video','Audio'};
 
 
-nBoots = 200; % # bootstraps
+nBoots = 100; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
@@ -40,12 +40,6 @@ load(audioFile,'audioData');   % Audio
 
 actors = [data.actor]; % Array of actor numbers
 sentences = [data.sentence]; % Array of sentence numbers
-
-
-
-
-
-
 
 
 
@@ -347,12 +341,12 @@ for ii = 9%:length(actors)
             m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2);
             v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3);
             switch observedMode
-                case 'MR-only'
+                case 'MR'
                     partial_centered(v1:v2, :) = 0;
-                case 'Video-only'
+                case 'VID'
                     partial_centered(m1:m2, :) = 0;
-                case 'MR+Video'
-                    % keep both
+                case 'MR+VID'
+                    
             end
             
             % Sanity: hidden block must be exactly zero after centring+masking

@@ -12,7 +12,7 @@ VERBOSE = true;
 
 
 % === H2: choose the hidden visual target ===
-reconstructId = 2; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
+reconstructId = 1; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
 shuffleTarget  = 3; % H2 null: shuffle Audio only (Tri-ShufA)
 
 if ~(reconstructId==1 || reconstructId==2)
@@ -265,14 +265,16 @@ for ii = 9%:length(actors)
 
             [PCA,MorphMean,loadings] = doPCA(shuffWarps);
             
-            partial_data = shuffWarps;
-            partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % zero the target block
-            partialMorphMean = MorphMean;
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
-            partial_loading = partial_centered'*PCA;
-
-
-            % (H2) No audio feature-space metric here; loadings-space stats are computed after the loop.
+            % Centre first by the PCA-fit mean, then mask the hidden target, then project
+            partial_centered = bsxfun(@minus, shuffWarps, MorphMean);
+            
+            ts1 = elementBoundaries(reconstructId)+1;
+            ts2 = elementBoundaries(reconstructId+1);
+            partial_centered(ts1:ts2, :) = 0;
+            
+            assert(norm(partial_centered(ts1:ts2,:),'fro')==0, 'Hidden target rows not zero (Tri-ShufA).');
+            
+            partial_loading = partial_centered' * PCA;
 
 
             

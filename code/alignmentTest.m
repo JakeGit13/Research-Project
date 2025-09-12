@@ -1,207 +1,122 @@
 function alignmentTest()
-    clc; clear all;
+% alignmentCheck(incrementValue)
+% - Uses a fixed manifest (dataIdx + WAV path) you already mapped.
+% - incrementValue is 0-based: 0 selects the first manifest entry, 1 the second, etc.
+% - Displays audio waveform (with moving cursor), video frame, MRI frame.
+% - Single "Play" button to run through the sequence once in real time.
 
+   
+    clc;
 
-    % Load your data
+    incrementValue = 2;
+    
+
+    %% Paths and data
     dataDir = '/Users/jaker/Research-Project/data';
-    load(fullfile(dataDir, 'mrAndVideoData.mat'), 'data');
-    audioFile = 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_256_6_svtimriMANUAL.wav';
-    
-    % Load and clean audio (modified section)
-    [Y, fs] = audioread(audioFile);
-    
-    % Check if audio is stereo and clean it
-    if size(Y, 2) == 2
-        audio = Y(:,2) - Y(:,1);  % Clean audio by subtracting channels
-        fprintf('Audio cleaned: subtracted channel 1 from channel 2\n');
-    else
-        audio = Y;  % If mono, use as is
-        fprintf('Audio is mono, using as is\n');
+    S = load(fullfile(dataDir, 'mrAndVideoData.mat'), 'data');
+    data = S.data;
+
+    %% Manifest (ordered; first item is the one you requested)
+    manifest = [ ...
+        entry( 9, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_256_6_svtimriMANUAL.wav', 'sub8_sen_256_6');  % 1
+        entry( 1, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_252_18_svtimriMANUAL.wav',  'sub8_sen_252_18');  % 2       This audio needs to be swapped with...
+        entry( 5, 'C:\Users\jaker\Research-Project\data\audio\sub1_sen_252_1_svtimriMANUAL.wav', 'sub1_sen_252_1'); % 3       ...this audio
+        entry( 6, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_253_18_svtimriMANUAL.wav', 'sub8_sen_253_18'); % 4
+        entry( 7, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_254_15_svtimriMANUAL.wav', 'sub8_sen_254_15'); % 5
+        entry( 8, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_255_17_svtimriMANUAL.wav', 'sub8_sen_255_17'); % 6
+        entry(10, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_257_15_svtimriMANUAL.wav', 'sub8_sen_257_15'); % 7
+        entry(11, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_258_8_svtimriMANUAL.wav',  'sub8_sen_258_8');  % 8
+        entry(12, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_259_18_svtimriMANUAL.wav', 'sub8_sen_259_18'); % 9
+        entry(13, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_260_1_svtimriMANUAL.wav',  'sub8_sen_260_1');  % 10
+        entry(14, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_261_15_svtimriMANUAL.wav', 'sub8_sen_261_15'); % 11
+        entry(18, 'C:\Users\jaker\Research-Project\data\audio\sub14_sen_252_14_svtimriMANUAL.wav','sub14_sen_252_14') % 12
+    ];
+
+    idx = incrementValue + 1;
+    if idx < 1 || idx > numel(manifest)
+        error('incrementValue out of range. Valid: 0..%d', numel(manifest)-1);
     end
-    
-    % Ensure audio is a column vector for consistency
+    M = manifest(idx);
+
+    %% Load audio (stereo clean = R-L)
+    [Y, fs] = audioread(M.wav);
+    if size(Y,2) == 2
+        audio = Y(:,2) - Y(:,1);
+    else
+        audio = Y;
+    end
     audio = audio(:);
+    audioDur = numel(audio)/fs;
+    tAudio = (0:numel(audio)-1)/fs;
+
+    %% Load frames
+    ii = M.dataIdx;
+    videoFrames = data(ii).video_frames;   % 1xT cells
+    mrFrames    = data(ii).mr_frames;      % 1xT cells
+    T = numel(videoFrames);
+
+    % Derive fps from durations (avoids hard-coding)
+    frameRate = T / audioDur;
+    vidDur = (T-1)/frameRate;
+
+    fprintf('Item %d/%d: dataIdx=%d | %s | T=%d | fps=%.3f | audio=%.2fs | video=%.2fs\n', ...
+        idx, numel(manifest), ii, M.label, T, frameRate, audioDur, vidDur);
+
+    %% Figure
+
+    % Kill any old alignment windows
+    delete(findall(0, 'Type', 'figure', 'Name', 'Alignment Window'));
     
-    audioTime = (0:length(audio)-1) / fs;
 
 
 
-    
-    % Get video/MRI data
-    dataIdx = 9;
-    videoFrames = data(dataIdx).video_frames;  % 1x40 cell array
-    mrFrames = data(dataIdx).mr_frames;        % 1x40 cell array
-    nFrames = length(videoFrames);  % 40 frames
-    
-    % Frame rate calculation - with 40 frames, we need to estimate based on audio duration
-    % Or you can set this if you know it
-    frameRate = 15.5; % Adjust if you know the actual rate
-    % Alternative: calculate based on audio duration
-    % frameRate = nFrames / audioTime(end);
-    
-    videoTime = (0:nFrames-1) / frameRate;
-    
-    % Print some info
-    fprintf('Audio duration: %.2f seconds\n', audioTime(end));
-    fprintf('Video duration (at %d fps): %.2f seconds\n', frameRate, videoTime(end));
-    fprintf('Number of frames: %d\n', nFrames);
-    
-    % Create synchronized visualization
-    fig = figure('Position', [100 100 1200 800]);
-    
-    % Audio waveform
+
+    fig = figure('Position',[100 100 1200 800], 'Name',['Alignment: ' M.label], 'NumberTitle','off');
+
+    % Audio plot
     subplot(3,1,1);
-    plot(audioTime, audio);
-    hold on;
-    xlabel('Time (s)');
-    ylabel('Amplitude');
-    title('Audio Waveform');
-    audioLine = xline(0, 'r', 'LineWidth', 2);
-    
+    plot(tAudio, audio); hold on;
+    xlabel('Time (s)'); ylabel('Amplitude');
+    title(['Audio — ' M.label], 'Interpreter','none');
+    xlim([0 max(audioDur, vidDur)]);
+    hLine = xline(0,'r','LineWidth',2);
+
     % Video frame
     subplot(3,1,2);
-    vidImg = imshow(videoFrames{1});
-    title('Video Frame 1/40');
-    
+    hVid = imshow(videoFrames{1});
+    title(sprintf('Video Frame 1/%d', T));
+
     % MRI frame
     subplot(3,1,3);
-    mrImg = imshow(mrFrames{1});
-    title('MRI Frame 1/40');
-    
-    % Add slider for time navigation
-    slider = uicontrol('Style', 'slider', 'Position', [100 20 1000 30]);
-    slider.Min = 0;
-    slider.Max = min(audioTime(end), videoTime(end));
-    slider.Value = 0;
-    
-    % Add text to show current time and frame
-    timeText = uicontrol('Style', 'text', 'Position', [550 50 200 20]);
-    timeText.String = sprintf('Time: 0.00 s | Frame: 1/%d', nFrames);
-    
-    % Store handles in guidata for access in nested functions
-    handles = struct();
-    handles.slider = slider;
-    handles.audioLine = audioLine;
-    handles.vidImg = vidImg;
-    handles.mrImg = mrImg;
-    handles.timeText = timeText;
-    handles.videoFrames = videoFrames;
-    handles.mrFrames = mrFrames;
-    handles.nFrames = nFrames;
-    handles.frameRate = frameRate;
-    handles.audio = audio;
-    handles.fs = fs;
-    handles.audioTime = audioTime;
-    guidata(fig, handles);
-    
-    % Update function
-    slider.Callback = @updateVisualization;
-    
-    % Add play button
-    playButton = uicontrol('Style', 'pushbutton', 'String', 'Play', ...
-        'Position', [20 20 60 30], 'Callback', @playSequence);
-    
-    % Add frame step buttons
-    prevButton = uicontrol('Style', 'pushbutton', 'String', '< Prev', ...
-        'Position', [90 60 60 30], 'Callback', @prevFrame);
-    nextButton = uicontrol('Style', 'pushbutton', 'String', 'Next >', ...
-        'Position', [160 60 60 30], 'Callback', @nextFrame);
-    
-    % Add audio play button for current position
-    playAudioButton = uicontrol('Style', 'pushbutton', 'String', 'Play Audio Segment', ...
-        'Position', [230 60 120 30], 'Callback', @playAudioSegment);
-end
+    hMR  = imshow(mrFrames{1});
+    title(sprintf('MRI Frame 1/%d', T));
 
-function updateVisualization(src, ~)
-    handles = guidata(src);
-    currentTime = src.Value;
-    
-    % Update audio cursor
-    handles.audioLine.Value = currentTime;
-    
-    % Calculate frame index
-    frameIdx = round(currentTime * handles.frameRate) + 1;
-    frameIdx = min(max(frameIdx, 1), handles.nFrames);
-    
-    % Update time text
-    handles.timeText.String = sprintf('Time: %.2f s | Frame: %d/%d', ...
-        currentTime, frameIdx, handles.nFrames);
-    
-    % Update video frame
-    handles.vidImg.CData = handles.videoFrames{frameIdx};
-    subplot(3,1,2);
-    title(sprintf('Video Frame %d/%d', frameIdx, handles.nFrames));
-    
-    % Update MRI frame
-    handles.mrImg.CData = handles.mrFrames{frameIdx};
-    subplot(3,1,3);
-    title(sprintf('MRI Frame %d/%d', frameIdx, handles.nFrames));
-    
-    drawnow;
-end
+    % Play button (single control)
+    uicontrol('Style','pushbutton','String','Play', ...
+              'Position',[20 20 60 30], 'Callback',@(~,~) playOnce());
 
-function playSequence(src, ~)
-    handles = guidata(src);
-    startTime = handles.slider.Value;
-    endTime = handles.slider.Max;
-    timeStep = 1/handles.frameRate;
-    
-    % Option to play with audio
-    playWithAudio = 'Yes';
-    
-    if strcmp(playWithAudio, 'Yes')
-        % Calculate starting audio sample
-        startSample = round(startTime * handles.fs) + 1;
-        startSample = min(max(startSample, 1), length(handles.audio));
-        
-        % Play audio from current position
-        audioPlayer = audioplayer(handles.audio(startSample:end), handles.fs);
-        play(audioPlayer);
-    end
-    
-    tic;
-    for t = startTime:timeStep:endTime
-        handles.slider.Value = t;
-        updateVisualization(handles.slider, []);
-        
-        % Try to maintain real-time playback
-        elapsed = toc;
-        targetTime = t - startTime;
-        if targetTime > elapsed
-            pause(targetTime - elapsed);
+    %% Nested: play sequence once
+    function playOnce()
+        ap = audioplayer(audio, fs);
+        play(ap);
+        t0 = tic;
+        for f = 1:T
+            t = (f-1)/frameRate;
+            if ~ishandle(fig), break; end
+            hLine.Value = t;
+            set(hVid,'CData',videoFrames{f});
+            set(hMR, 'CData',mrFrames{f});
+            drawnow;
+
+            % Real-time pacing
+            elapsed = toc(t0);
+            if t > elapsed, pause(t - elapsed); end
         end
-        
-        % Check if figure was closed
-        if ~ishandle(handles.slider)
-            if strcmp(playWithAudio, 'Yes') && isplaying(audioPlayer)
-                stop(audioPlayer);
-            end
-            break;
-        end
-    end
-    
-    if strcmp(playWithAudio, 'Yes') && exist('audioPlayer', 'var') && isplaying(audioPlayer)
-        stop(audioPlayer);
+        if isvalid(ap) && isplaying(ap), stop(ap); end
     end
 end
 
-function prevFrame(src, ~)
-    handles = guidata(src);
-    currentTime = handles.slider.Value;
-    newTime = max(0, currentTime - 1/handles.frameRate);
-    handles.slider.Value = newTime;
-    updateVisualization(handles.slider, []);
-end
-
-function nextFrame(src, ~)
-    handles = guidata(src);
-    currentTime = handles.slider.Value;
-    newTime = min(handles.slider.Max, currentTime + 1/handles.frameRate);
-    handles.slider.Value = newTime;
-    updateVisualization(handles.slider, []);
-end
-
-function playAudioSegment()   % Change this to just make it go back to the start somehow 
-    handles.slider.Value = 0.0;
-    updateVisualization(handles.slider, []);
+%% Helper for manifest rows
+function s = entry(dataIdx, wavPath, label)
+    s = struct('dataIdx',dataIdx, 'wav',wavPath, 'label',label);
 end

@@ -14,19 +14,19 @@ reconstructId = 3;   % H1 target: must be 3 (Audio)
 shuffleTarget  = 3;  % H1 eval-only + (optional) refit-permutation use Audio
 
 % H1 source–contribution: which observed block(s) may inform the scores?
-% Options: 'MR+Video' (default), 'MR-only', 'Video-only'
-observedMode = 'MR+Video'; % Feel like theres a better way to do this 
+% Options: 'MR+VID' (default), 'MR', 'VID'
+observedMode = 'MR';
     
 if reconstructId ~= 3
     error('H1 source–contribution requires reconstructId==3 (Audio as target).');
 end
-if ~ismember(observedMode, {'MR+Video','MR-only','Video-only'})
-    error('observedMode must be ''MR+Video'', ''MR-only'', or ''Video-only''.');
+if ~ismember(observedMode, {'MR+VID','MR','VID'})
+    error('observedMode must be ''MR+VID'', ''MR'', or ''VID''.');
 end
 blockNames = {'MR','Video','Audio'};
 
 
-nBoots = 500; % # bootstraps
+nBoots = 200; % # bootstraps
 % ******************************************************************************************************************************************************
 
 
@@ -124,41 +124,38 @@ for ii = 9%:length(actors)
     end
 
 
-    % Start from the fused (weighted) data
-    partial_data = mixWarps;
+    % Centre first, then mask hidden/excluded rows
+    partialMorphMean = origMorphMean;
+    partial_centered = bsxfun(@minus, mixWarps, partialMorphMean);
     
     % Always hide the target (Audio rows)
     a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
-    partial_data(a1:a2, :) = 0;
+    partial_centered(a1:a2, :) = 0;
     
     % Apply source–contribution mask to observed blocks
     m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
     v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
     switch observedMode
-        case 'MR-only'
-            % Zero Video as well (scores inferred from MR only)
-            partial_data(v1:v2, :) = 0;
-        case 'Video-only'
-            % Zero MR as well (scores inferred from Video only)
-            partial_data(m1:m2, :) = 0;
-        case 'MR+Video'
+        case 'MR'
+            partial_centered(v1:v2, :) = 0;
+        case 'VID'
+            partial_centered(m1:m2, :) = 0;
+        case 'MR+VID'
             % keep both as observed
     end
     
-    % Projection-based score inference (paper-faithful)
-    partialMorphMean = mean(partial_data, 2);
-    partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
+    % Projection-based score inference
+    % Sanity: hidden block must be exactly zero after centring+masking
+    aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
+    assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking.');
     partial_loading  = partial_centered' * origPCA;
+
+
     
     if VERBOSE
         fprintf('H1 observedMode = %s (scores inferred from %s)\n', ...
             observedMode, observedMode);
     end
-
-
-
-
-
 
 
 
@@ -168,7 +165,7 @@ for ii = 9%:length(actors)
     
     % Audio rows of PCA basis (k columns), and centred Audio (match projection centring)
     P_audio       = origPCA(idx1:idx2, :);                                      % p_aud x k
-    X_audio_true  = bsxfun(@minus, mixWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
+    X_audio_true = bsxfun(@minus, mixWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
     X_audio_hat   = P_audio * (partial_loading.');                               % p_aud x T
     
     % Vectorised correlation (primary H1 metric)
@@ -329,36 +326,41 @@ for ii = 9%:length(actors)
                 otherwise
                     error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
             end
-            shuffWarps = [shMR; shVID; shAUD];
+            shuffWarps_i = [shMR; shVID; shAUD];
 
             if VERBOSE && bootI==1
                 fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
             end
 
 
-            [PCA,MorphMean,loadings] = doPCA(shuffWarps);
+            [PCA_sh, MorphMean_sh, loadings_sh] = doPCA(shuffWarps_i);
             
-            partial_data = shuffWarps;
+            % Centre first, then mask hidden/excluded rows
+            partialMorphMean = MorphMean_sh;
+            partial_centered = bsxfun(@minus, shuffWarps_i, partialMorphMean);
             
             % Always hide the target (Audio rows)
             a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
-            partial_data(a1:a2, :) = 0;
+            partial_centered(a1:a2, :) = 0;
             
             % Apply the same observedMode to the shuffled fusion
-            m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
-            v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
+            m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2);
+            v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3);
             switch observedMode
                 case 'MR-only'
-                    partial_data(v1:v2, :) = 0;
+                    partial_centered(v1:v2, :) = 0;
                 case 'Video-only'
-                    partial_data(m1:m2, :) = 0;
+                    partial_centered(m1:m2, :) = 0;
                 case 'MR+Video'
                     % keep both
             end
             
-            partialMorphMean = mean(partial_data, 2);
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
-            partial_loading  = partial_centered' * PCA;
+            % Sanity: hidden block must be exactly zero after centring+masking
+            aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
+            assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking (shuffled).');
+            partial_loading  = partial_centered' * PCA_sh;
+
+
 
 
 
@@ -366,8 +368,8 @@ for ii = 9%:length(actors)
             idx1 = elementBoundaries(reconstructId)+1;
             idx2 = elementBoundaries(reconstructId+1);
             
-            P_audio       = PCA(idx1:idx2, :);
-            X_audio_true  = bsxfun(@minus, shuffWarps(idx1:idx2, :), partialMorphMean(idx1:idx2));
+            P_audio       = PCA_sh(idx1:idx2, :);     % Error under 'PCA'
+            X_audio_true  = bsxfun(@minus, shuffWarps_i(idx1:idx2, :), partialMorphMean(idx1:idx2)); % Error under 'shuffWarps'
             X_audio_hat   = P_audio * (partial_loading.');
             
             aa = zscore(X_audio_true(:));
@@ -375,7 +377,7 @@ for ii = 9%:length(actors)
             shuffAudioVecR(bootI) = corr(aa, bb);
 
             
-            allShuffledOrigLoad{bootI} = loadings;
+            allShuffledOrigLoad{bootI} = loadings_sh;
             allShuffledReconLoad{bootI} = partial_loading;
         end
     else

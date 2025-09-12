@@ -12,7 +12,7 @@ VERBOSE = true;
 
 
 % === H2: choose the hidden visual target ===
-reconstructId = 2; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
+reconstructId = 1; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
 shuffleTarget  = 3; % H2 null: shuffle Audio only (Tri-ShufA)
 
 if ~(reconstructId==1 || reconstructId==2)
