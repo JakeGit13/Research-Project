@@ -1,21 +1,17 @@
 %% === High-Dimensional Articulatory Audio Feature Extraction ===
-% Extracts formants, MFCCs, prosody, and spectral features
-% Dense sampling for high dimensionality while maintaining articulatory focus
-
 clc; clear;
 
-% Root folder for audio WAVs
-audioFolderPath = 'C:\Users\jaker\Research-Project\data\Audio\Raw Audio';
-audioData = struct([]);  % 1×maxIdx struct with gaps allowed
+% Roots
+projectRoot           = 'C:\Users\jaker\Research-Project\data';
+audioFolderPath       = fullfile(projectRoot, 'Audio', 'Raw Audio');
+processedAudioFolder  = fullfile(projectRoot, 'Audio', 'Processed Audio');
+if ~exist(processedAudioFolder, 'dir'), mkdir(processedAudioFolder); end
 
-% Folder to save processed audio
-processedAudioFolderPath = 'C:\Users\jaker\Research-Project\data\Audio\Processed Audio';
-
-% [dataIdx, filename]  — used to map dataIdx (MR/Video) to raw audio
+% Manifest: [dataIdx, filename]
 manifest = {
      9,  'sub8_sen_256_6_svtimriMANUAL.wav';
-     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % swapped: idx 1 ← sub8_sen_252_18
-     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % swapped: idx 5 ← sub1_sen_252_1
+     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % swapped
+     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % swapped
      6,  'sub8_sen_253_18_svtimriMANUAL.wav';
      7,  'sub8_sen_254_15_svtimriMANUAL.wav';
      8,  'sub8_sen_255_17_svtimriMANUAL.wav';
@@ -27,55 +23,57 @@ manifest = {
     18,  'sub14_sen_252_14_svtimriMANUAL.wav'
 };
 
+% Load MR/Video ONCE (used only to get per-item frame counts)
+S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');  % not per-iteration
+data = S.data;  % :contentReference[oaicite:0]{index=0}
+
+% Prepare aggregate container (keeps H1/H2 unchanged)
+audioData = struct([]);   % indexed by dataIdx
+
 for i = 1:size(manifest,1)
+    dataIdx = manifest{i,1};
+    wavName = manifest{i,2};
+    wavPath = fullfile(audioFolderPath, wavName);
+    fprintf('[%2d/%2d] dataIdx=%d  |  %s\n', i, size(manifest,1), dataIdx, wavName);
 
-    %% Load and clean audio
-    audioFilePath = fullfile(audioFolderPath, manifest{i,2});
-    [Y, FS] = audioread(audioFilePath);
-    cleanAudio = Y(:,2) - Y(:,1);
-    
-    fprintf('%s\n', audioFilePath);
+    %% Load & clean audio (R-L if stereo; if mono, use as-is)
+    [Y, FS] = audioread(wavPath);
+    if size(Y,2) == 2
+        cleanAudio = Y(:,2) - Y(:,1);
+    else
+        cleanAudio = Y;
+    end
+    cleanAudio = cleanAudio(:);
+    fprintf('    Audio: %.2fs @ %d Hz\n', numel(cleanAudio)/FS, FS);
 
-    
-    fprintf('[INFO] Audio sampling rate: %d Hz\n', FS);
-    
-    %% Load MR/video frame count
-    load('C:\Users\jaker\Research-Project\data\mrAndVideoData.mat', 'data');
-    dataIdx = 9;  
-    nFrames = size(data(dataIdx).mr_warp2D, 2);
-    fprintf('[INFO] Number of MRI/video frames: %d\n', nFrames);
-    
-    %% Define time boundaries for each frame
-    totalDuration = length(cleanAudio) / FS;
+    %% Per-item frame count from MR/Video (do NOT hard-code 9)
+    nFrames = numel(data(dataIdx).video_frames);  % :contentReference[oaicite:1]{index=1}
+    fprintf('    Frames (MR/Video): %d\n', nFrames);
+
+    %% Define frame boundaries
+    totalDuration = numel(cleanAudio)/FS;
     frameEdges = linspace(0, totalDuration, nFrames + 1);
-    
-    %% Parameters for dense feature extraction
-    % More windows = more features per frame
-    winDur_ms = 25;  % 25ms windows
-    hopDur_ms = 5;   % 5ms hop for dense sampling
+
+    %% Parameters you already had
+    winDur_ms = 25; hopDur_ms = 5;
     winSamp = round(winDur_ms * FS / 1000);
     hopSamp = round(hopDur_ms * FS / 1000);
     hammingWin = hamming(winSamp, 'periodic');
-    
-    %% Initialize feature storage
-    allFrameFeatures = [];
-    
-    %% Process each frame
+
+    %% === Your existing feature extraction, unchanged in spirit ===
+    allFrameFeatures = [];   % will be [T x F] as in your original
     for frameIdx = 1:nFrames
-        % Get audio segment for this frame
-        t0 = frameEdges(frameIdx);
-        t1 = frameEdges(frameIdx+1);
+        % -- get frame slice --
+        t0 = frameEdges(frameIdx); t1 = frameEdges(frameIdx+1);
         segStart = max(1, floor(t0 * FS) + 1);
-        segEnd = min(length(cleanAudio), floor(t1 * FS));
+        segEnd   = min(numel(cleanAudio), floor(t1 * FS));
         frameAudio = cleanAudio(segStart:segEnd);
-        
-        % Ensure minimum length
-        if length(frameAudio) < winSamp
-            frameAudio = [frameAudio; zeros(winSamp - length(frameAudio), 1)];
+        if numel(frameAudio) < winSamp
+            frameAudio = [frameAudio; zeros(winSamp - numel(frameAudio),1)];
         end
-        
+
         frameFeatures = [];
-        
+
         %% 1. MEL SPECTROGRAM (High-resolution, similar to your original)
         % This gives us spectral evolution within each frame
         numMelBands = 40;  % 40 mel bands
@@ -360,41 +358,26 @@ for i = 1:size(manifest,1)
                 frameFeatures = [frameFeatures, mean(spectrum(binStart:binEnd))];
             end
         end
-        
-        %% Store features for this frame
-        allFrameFeatures(frameIdx, :) = frameFeatures;
-        
-        % Progress update
-        if mod(frameIdx, 10) == 0
-            fprintf('[PROGRESS] Processed %d/%d frames\n', frameIdx, nFrames);
+
+        % Store per-frame row
+        allFrameFeatures(frameIdx, :) = frameFeatures;  %#ok<AGROW>
+        if mod(frameIdx,10)==0
+            fprintf('    [progress] %d/%d frames\n', frameIdx, nFrames);
         end
     end
-    
-    %% Summary
-    featuresPerFrame = size(allFrameFeatures, 2);
-    fprintf('\n=== EXTRACTION COMPLETE ===\n');
-    fprintf('Total frames: %d\n', nFrames);
-    fprintf('Features per frame: %d\n', featuresPerFrame);
-    fprintf('\nFeature breakdown:\n');
-    fprintf('  - Mel spectrogram stats: %d features\n', 40*8 + 40*10);
-    fprintf('  - MFCCs (20 coeffs) with deltas: %d features\n', 20*9);
-    fprintf('  - Formants (5) with trajectories: %d features\n', 5*4 + 4);
-    fprintf('  - Prosody (F0, energy, band RMS): %d features\n', 8 + 6 + 10);
-    fprintf('  - Spectral shape features: %d features\n', 5*5 + 1);
-    fprintf('  - Raw spectral snapshots: %d features\n', 10*64);
-    fprintf('  TOTAL: %d features per frame\n', featuresPerFrame);
-    
-    %% Save to file 
-    
-    dIdx = manifest{r,1};
-    base = erase(manifest{r,2}, '.wav');
-    S = load(fullfile(outFolderPath, [base '_features.mat']), 'audioData');  % per-item
-    audioData(dIdx) = S.audioData;  % places features at dataIdx
 
-    save(fullfile(projectRoot,'audioFeaturesData.mat'), 'audioData', '-v7.3');
+    %% Save per-item file: <wavbase>_features.mat (simple, human-friendly)
+    [~, base, ~] = fileparts(wavName);
+    outPath = fullfile(processedAudioFolder, [base '_features.mat']);
+    audioDataItem = struct('dataIdx',dataIdx,'filename',wavName, ...
+                           'fs',FS,'audioFeatures',allFrameFeatures);  % [T x F]
+    save(outPath, 'audioDataItem', '-v7.3');
+    fprintf('    Saved per-item → %s\n', outPath);
 
-    fprintf('\n[INFO] Saved raw features to: audioFeaturesData.mat\n');
-    fprintf('[INFO] Features are NOT normalized - normalization should be done in PCA script\n');
-
+    %% Fill aggregate (keeps H1/H2 unchanged)
+    audioData(dataIdx).audioFeatures = allFrameFeatures;  % [T x F]
 end
 
+%% Save aggregate once (so H1/H2 remain untouched)
+save(fullfile(projectRoot,'audioFeaturesData.mat'), 'audioData', '-v7.3');
+fprintf('[DONE] Wrote aggregate audioFeaturesData.mat and per-item feature files.\n');

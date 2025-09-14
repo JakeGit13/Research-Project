@@ -1,0 +1,100 @@
+function main
+% MAIN ORCHESTRATOR — minimal & reproducible
+% - One manifest
+% - Cached per-item feature files (simple names)
+% - Aggregate audioFeaturesData.mat for current H1/H2 pipeline
+
+clc; clear;
+
+%% Paths
+projectRoot          = 'C:\Users\jaker\Research-Project\data';
+audioFolderPath      = fullfile(projectRoot, 'Audio', 'Raw Audio');         % WAVs
+processedAudioFolder = fullfile(projectRoot, 'Audio', 'Processed Audio');   % per-item feature .mat
+
+
+%% Cache policy
+% 'ifMissing'  -> compute only if file is absent (recommended)
+% 'overwrite'  -> always recompute and overwrite
+cacheMode   = 'ifMissing';
+featureTag  = '';  % optional suffix for versions, e.g., 'v2' -> *_features_v2.mat
+
+%% Manifest: [dataIdx, filename]  (the two swapped entries are included)
+manifest = {
+     9,  'sub8_sen_256_6_svtimriMANUAL.wav';
+     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % swapped for idx=1
+     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % swapped for idx=5
+     6,  'sub8_sen_253_18_svtimriMANUAL.wav';
+     7,  'sub8_sen_254_15_svtimriMANUAL.wav';
+     8,  'sub8_sen_255_17_svtimriMANUAL.wav';
+    10,  'sub8_sen_257_15_svtimriMANUAL.wav';
+    11,  'sub8_sen_258_8_svtimriMANUAL.wav';
+    12,  'sub8_sen_259_18_svtimriMANUAL.wav';
+    13,  'sub8_sen_260_1_svtimriMANUAL.wav';
+    14,  'sub8_sen_261_15_svtimriMANUAL.wav';
+    18,  'sub14_sen_252_14_svtimriMANUAL.wav'
+};
+
+%% Load MR/Video once (for per-item frame counts)
+S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');
+data = S.data;
+
+%% Build (or refill) the aggregate for H1/H2
+audioData = struct([]);   % audioData(ii).audioFeatures = [T x F]
+
+fprintf('\n[MAIN] Starting feature pass with cacheMode=%s\n\n', cacheMode);
+
+for i = 1:size(manifest,1)
+    ii      = manifest{i,1};
+    wavName = manifest{i,2};
+    wavPath = fullfile(audioFolderPath, wavName);
+    [~, base, ~] = fileparts(wavName);
+    tagPart = iff(~isempty(featureTag), ['_' featureTag], '');
+    outPath = fullfile(processedAudioFolder, [base '_features' tagPart '.mat']);
+
+    fprintf('[%2d/%2d] dataIdx=%d | %s\n', i, size(manifest,1), ii, wavName);
+
+    needCompute = strcmpi(cacheMode,'overwrite') || ~exist(outPath,'file');
+
+    if needCompute
+        % --- Load & clean audio (R-L if stereo; else mono) ---
+        [Y, FS] = audioread(wavPath);
+        cleanAudio = Y(:, min(2, size(Y,2))) - (size(Y,2)==2)*Y(:,1);  % R-L if stereo; else just Y(:,1)
+        cleanAudio = cleanAudio(:);
+
+        % --- Target frames from MR/Video for this item ---
+        T_target = numel(data(ii).video_frames);
+
+
+        allFrameFeatures = extractAudioFeatures16fps(cleanAudio, FS, T_target);  % [T x F] preferred
+
+        % Package and save per-item
+        audioDataItem = struct('dataIdx', ii, 'filename', wavName, ...
+                               'fs', FS, 'T', T_target, ...
+                               'audioFeatures', allFrameFeatures);  % [T x F]
+        save(outPath, 'audioDataItem', '-v7.3');
+        fprintf('    [WRITE] %s  (T=%d, F=%d)\n', outPath, size(allFrameFeatures,1), size(allFrameFeatures,2));
+    else
+        fprintf('    [SKIP] using cached %s\n', outPath);
+        Sitem = load(outPath, 'audioDataItem');
+        allFrameFeatures = Sitem.audioDataItem.audioFeatures;
+    end
+
+    % Fill aggregate slot for H1/H2 (keeps their code unchanged)
+    audioData(ii).audioFeatures = allFrameFeatures;  % [T x F]
+end
+
+% Write the aggregate used by current H1/H2
+aggPath = fullfile(projectRoot, 'audioFeaturesData.mat');
+save(aggPath, 'audioData', '-v7.3');
+fprintf('\n[MAIN] Wrote aggregate: %s\n', aggPath);
+fprintf('[MAIN] Per-item features in: %s\n\n', processedAudioFolder);
+
+% (Optional) You can now call your existing H1/H2 exactly as-is.
+% e.g., trimodalH1; trimodalH2;
+
+end
+
+%% small inline helper
+function y = iff(cond, a, b), if cond, y=a; else, y=b; 
+
+end

@@ -1,61 +1,47 @@
-function trimodalH2
+function results = trimodalH2(data, audioFeatures, dataIdx, opts)
+    % Inputs:
+    %   data           : struct array with .mr_warp2D, .vid_warp2D 
+    %   audioFeatures  : [F × T] matrix for this sentence (already transposed)
+    %   dataIdx        : index into 'data'
 
-clc;
+     %% Default options  =======================================================================================
+    arguments
+        data
+        audioFeatures
+        dataIdx (1,1) double
+        opts.usePar (1,1) logical = true    % Need to get rid
+        opts.reconstructId = 1;     % Double check if these are the right defaults
+        opts.shuffleTarget = 3;
+        opts.nBoots (1,1) double  = 100
+        opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
+        opts.VERBOSE (1,1) logical = false   
+    end
 
-dataDir = '/Users/jaker/Research-Project/data';
-dataFile = 'mrAndVideoData.mat';
-audioFile = 'audioFeaturesData.mat';
-
-
-usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
-VERBOSE = true;
-
-
-% === H2: choose the hidden visual target ===
-reconstructId = 1; % H2 target: 1 = MR, 2 = Video   (must be 1 or 2)
-shuffleTarget  = 3; % H2 null: shuffle Audio only (Tri-ShufA)
-
-if ~(reconstructId==1 || reconstructId==2)
-    error('H2: reconstructId must be 1 (MR) or 2 (Video).');
-end
-if shuffleTarget ~= 3
-    error('H2: shuffleTarget must be 3 (Audio) for Tri-ShufA.');
-end
-blockNames = {'MR','Video','Audio'}; % used in prints
-
-
-
-
-nBoots = 500; % # bootstraps
-% ******************************************************************************************************************************************************
-
-
-% Reset random seed
-rng('default');
-
-addpath(dataDir) % Add the user-defined data directory to the path 
-load(dataFile,'data');          % MR + video
-load(audioFile,'audioData');   % Audio
-
-
-actors = [data.actor]; % Array of actor numbers
-sentences = [data.sentence]; % Array of sentence numbers
-
-%% PCA on hybrid facial video and vocal-tract MR images
-
-for ii = 9%:length(actors)
+    usePar      = opts.usePar;  % Need to remove this
+    reconstructId = opts.reconstructId;
+    shuffleTarget  = opts.shuffleTarget;
+    nBoots      = opts.nBoots;
+    VERBOSE     = opts.VERBOSE;    
     
-    clear results;
+
     
+    blockNames = {'MR','Video','Audio'}; % used in prints
+       
+    % Reset random seed
+    rng('default');
+
+
+    %% PCA on hybrid facial video and vocal-tract MR images
+
     %% === Load/Assemble Blocks ===
-    thisMRWarp  = data(ii).mr_warp2D;                         % (p_mr x T)
-    thisVidWarp = data(ii).vid_warp2D;                        % (p_vid x T)
-    thisAudio   = audioData(ii).audioFeatures';  % (p_aud x T)
+    thisMRWarp  = data(dataIdx).mr_warp2D;                         % (p_mr x T)
+    thisVidWarp = data(dataIdx).vid_warp2D;                        % (p_vid x T)
+    thisAudio   = audioFeatures;                                   % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
     if VERBOSE
-        fprintf('Item %d\n', ii);
+        fprintf('Running H2 for item %d\n', dataIdx);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -139,16 +125,6 @@ for ii = 9%:length(actors)
         fprintf('H2 Tri-real: target=%s | observed = %s + %s\n', ...
             blockNames{reconstructId}, blockNames{obsIdx(1)}, blockNames{obsIdx(2)});
     end
-
-
-
-    % (H2) No evaluation-only audio null here; H2 uses refit-permutation on Audio (Tri-ShufA).
-
-
-
-
-
-
 
     
     % Store the loadings for further processing
@@ -291,12 +267,6 @@ for ii = 9%:length(actors)
     
     %% Statistics ************************************************************************************************************************
     
-    % (H2) No audio feature-space summary; proceed to loadings-space stats for H2.
-
-
-
-
-
     % Unshuffled
     loadings1D = results.nonShuffledLoadings(:);
     reconLoadings1D = results.nonShuffledReconLoadings(:);
@@ -365,30 +335,30 @@ for ii = 9%:length(actors)
         
     end
 end
-end % end pcaAndShufflingExample
+
 
 %% doPCA
 function [prinComp,MorphMean,loadings] = doPCA(data)
 
-% Mean each row (across frames)
-MorphMean = mean(data, 2);
-
-% Subtract overall mean from each frame
-data = bsxfun(@minus, data, MorphMean);
-xxt        = data'*data;
-[~,LSq,V]  = svd(xxt);
-LInv       = 1./sqrt(diag(LSq));
-prinComp  = data * V * diag(LInv);
-loadings = (data')*prinComp;
+    % Mean each row (across frames)
+    MorphMean = mean(data, 2);
+    
+    % Subtract overall mean from each frame
+    data = bsxfun(@minus, data, MorphMean);
+    xxt        = data'*data;
+    [~,LSq,V]  = svd(xxt);
+    LInv       = 1./sqrt(diag(LSq));
+    prinComp  = data * V * diag(LInv);
+    loadings = (data')*prinComp;
 end % end doPCA
 
 
 function [lam1, fro] = block_scale_stats(X)
-% Row-centre within block (match the main script’s convention)
-Xc  = bsxfun(@minus, X, mean(X,2));
-% Leading eigenvalue of Xc'Xc equals the square of the top singular value
-% Using economy SVD is fine here given T << p in your data layout
-[~, S, ~] = svd(Xc' * Xc, 'econ');
-lam1 = S(1,1);
-fro  = norm(Xc, 'fro');
+    % Row-centre within block (match the main script’s convention)
+    Xc  = bsxfun(@minus, X, mean(X,2));
+    % Leading eigenvalue of Xc'Xc equals the square of the top singular value
+    % Using economy SVD is fine here given T << p in your data layout
+    [~, S, ~] = svd(Xc' * Xc, 'econ');
+    lam1 = S(1,1);
+    fro  = norm(Xc, 'fro');
 end

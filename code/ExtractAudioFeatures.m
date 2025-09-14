@@ -1,40 +1,5 @@
-%% === High-Dimensional Articulatory Audio Feature Extraction ===
-clc; clear;
+function audioFeatures = extractAudioFeatures(wavPath, nFrames)
 
-% Roots
-projectRoot           = 'C:\Users\jaker\Research-Project\data';
-audioFolderPath       = fullfile(projectRoot, 'Audio', 'Raw Audio');
-processedAudioFolder  = fullfile(projectRoot, 'Audio', 'Processed Audio');
-if ~exist(processedAudioFolder, 'dir'), mkdir(processedAudioFolder); end
-
-% Manifest: [dataIdx, filename]
-manifest = {
-     9,  'sub8_sen_256_6_svtimriMANUAL.wav';
-     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % swapped
-     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % swapped
-     6,  'sub8_sen_253_18_svtimriMANUAL.wav';
-     7,  'sub8_sen_254_15_svtimriMANUAL.wav';
-     8,  'sub8_sen_255_17_svtimriMANUAL.wav';
-    10,  'sub8_sen_257_15_svtimriMANUAL.wav';
-    11,  'sub8_sen_258_8_svtimriMANUAL.wav';
-    12,  'sub8_sen_259_18_svtimriMANUAL.wav';
-    13,  'sub8_sen_260_1_svtimriMANUAL.wav';
-    14,  'sub8_sen_261_15_svtimriMANUAL.wav';
-    18,  'sub14_sen_252_14_svtimriMANUAL.wav'
-};
-
-% Load MR/Video ONCE (used only to get per-item frame counts)
-S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');  % not per-iteration
-data = S.data;  % :contentReference[oaicite:0]{index=0}
-
-% Prepare aggregate container (keeps H1/H2 unchanged)
-audioData = struct([]);   % indexed by dataIdx
-
-for i = 1:size(manifest,1)
-    dataIdx = manifest{i,1};
-    wavName = manifest{i,2};
-    wavPath = fullfile(audioFolderPath, wavName);
-    fprintf('[%2d/%2d] dataIdx=%d  |  %s\n', i, size(manifest,1), dataIdx, wavName);
 
     %% Load & clean audio (R-L if stereo; if mono, use as-is)
     [Y, FS] = audioread(wavPath);
@@ -44,11 +9,10 @@ for i = 1:size(manifest,1)
         cleanAudio = Y;
     end
     cleanAudio = cleanAudio(:);
-    fprintf('    Audio: %.2fs @ %d Hz\n', numel(cleanAudio)/FS, FS);
-
-    %% Per-item frame count from MR/Video (do NOT hard-code 9)
-    nFrames = numel(data(dataIdx).video_frames);  % :contentReference[oaicite:1]{index=1}
-    fprintf('    Frames (MR/Video): %d\n', nFrames);
+    fprintf('Extracting features from: %s\n', wavPath);
+    fprintf('Length: %.2fs\n', numel(cleanAudio)/FS);
+    
+    fprintf('Frames (MR/Video): %d\n', nFrames);
 
     %% Define frame boundaries
     totalDuration = numel(cleanAudio)/FS;
@@ -366,18 +330,12 @@ for i = 1:size(manifest,1)
         end
     end
 
-    %% Save per-item file: <wavbase>_features.mat (simple, human-friendly)
-    [~, base, ~] = fileparts(wavName);
-    outPath = fullfile(processedAudioFolder, [base '_features.mat']);
-    audioDataItem = struct('dataIdx',dataIdx,'filename',wavName, ...
-                           'fs',FS,'audioFeatures',allFrameFeatures);  % [T x F]
-    save(outPath, 'audioDataItem', '-v7.3');
-    fprintf('    Saved per-item → %s\n', outPath);
+    fprintf('\n');
 
-    %% Fill aggregate (keeps H1/H2 unchanged)
-    audioData(dataIdx).audioFeatures = allFrameFeatures;  % [T x F]
+    audioFeatures = allFrameFeatures.';   % [F × T] double check this is right 
+
+
+    
 end
 
-%% Save aggregate once (so H1/H2 remain untouched)
-save(fullfile(projectRoot,'audioFeaturesData.mat'), 'audioData', '-v7.3');
-fprintf('[DONE] Wrote aggregate audioFeaturesData.mat and per-item feature files.\n');
+

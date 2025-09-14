@@ -1,63 +1,50 @@
-function trimodalH1
+function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
-clc;
-
-dataDir = '/Users/jaker/Research-Project/data';
-dataFile = 'mrAndVideoData.mat';
-audioFile = 'audioFeaturesData.mat';
-
-
-usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
-VERBOSE = true;
-
-reconstructId = 3;   % H1 target: must be 3 (Audio)
-shuffleTarget  = 3;  % H1 eval-only + (optional) refit-permutation use Audio
-
-% H1 source–contribution: which observed block(s) may inform the scores?
-% Options: 'MR+VID' (default), 'MR', 'VID'
-observedMode = 'MR+VID';
+    % Inputs:
+    %   data           : struct array with .mr_warp2D, .vid_warp2D 
+    %   audioFeatures  : [F × T] matrix for this sentence (already transposed)
+    %   dataIdx        : index into 'data'
     
-if reconstructId ~= 3
-    error('H1 source–contribution requires reconstructId==3 (Audio as target).');
-end
-if ~ismember(observedMode, {'MR+VID','MR','VID'})
-    error('observedMode must be ''MR+VID'', ''MR'', or ''VID''.');
-end
-blockNames = {'MR','Video','Audio'};
-
-
-nBoots = 100; % # bootstraps
-% ******************************************************************************************************************************************************
-
-
-% Reset random seed
-rng('default');
-
-addpath(dataDir) % Add the user-defined data directory to the path 
-load(dataFile,'data');          % MR + video
-load(audioFile,'audioData');   % Audio
-
-
-actors = [data.actor]; % Array of actor numbers
-sentences = [data.sentence]; % Array of sentence numbers
-
-
-
-%% PCA on hybrid facial video and vocal-tract MR images
-
-for ii = 9%:length(actors)
     
-    clear results;
+    %% Default options  =======================================================================================
+    arguments
+        data
+        audioFeatures
+        dataIdx (1,1) double
+        opts.usePar (1,1) logical = true    % Need to get rid
+        opts.reconstructId = 3;     % Double check if these are the right defaults
+        opts.shuffleTarget = 3;
+        opts.nBoots (1,1) double  = 100
+        opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
+        opts.VERBOSE (1,1) logical = false   
+    end
+
+
+    usePar      = opts.usePar;  % Need to remove this
+    reconstructId = opts.reconstructId;
+    shuffleTarget  = opts.shuffleTarget;
+    nBoots      = opts.nBoots;
+    observedMode= opts.observedMode; % Which observed block(s) may inform the scores?
+    VERBOSE     = opts.VERBOSE;    
+    blockNames = {'MR','Video','Audio'};    % Used in verbose prints, might get rid 
     
+    
+    
+    % Reset random seed
+    rng('default');
+            
+    
+    %% PCA on hybrid facial video and vocal-tract MR images
+
     %% === Load/Assemble Blocks ===
-    thisMRWarp  = data(ii).mr_warp2D;                         % (p_mr x T)
-    thisVidWarp = data(ii).vid_warp2D;                        % (p_vid x T)
-    thisAudio   = audioData(ii).audioFeatures';  % (p_aud x T)
+    thisMRWarp  = data(dataIdx).mr_warp2D;                         % (p_mr x T)
+    thisVidWarp = data(dataIdx).vid_warp2D;                        % (p_vid x T)
+    thisAudio   = audioFeatures;                                   % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
     if VERBOSE
-        fprintf('Item %d\n', ii);
+        fprintf('Running H1 for item %d\n', dataIdx);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -95,7 +82,7 @@ for ii = 9%:length(actors)
 
 
 
-%% ============================================================================
+    %% ============================================================================
 
     
     % Perform a PCA on the hybrid data
@@ -150,8 +137,6 @@ for ii = 9%:length(actors)
         fprintf('H1 observedMode = %s (scores inferred from %s)\n', ...
             observedMode, observedMode);
     end
-
-
 
     %% === H1 Audio feature-space metrics (UNSHUFFLED) =======================
     idx1 = elementBoundaries(reconstructId)+1;
@@ -400,8 +385,6 @@ for ii = 9%:length(actors)
     end
 
 
-
-
     % Unshuffled
     loadings1D = results.nonShuffledLoadings(:);
     reconLoadings1D = results.nonShuffledReconLoadings(:);
@@ -466,31 +449,31 @@ for ii = 9%:length(actors)
         xlabel(statStrings{statI});ylabel('Frequency');
         
     end
-end
-end % end pcaAndShufflingExample
+
+end % end trimodalH1
 
 %% doPCA
 function [prinComp,MorphMean,loadings] = doPCA(data)
 
-% Mean each row (across frames)
-MorphMean = mean(data, 2);
-
-% Subtract overall mean from each frame
-data = bsxfun(@minus, data, MorphMean);
-xxt        = data'*data;
-[~,LSq,V]  = svd(xxt);
-LInv       = 1./sqrt(diag(LSq));
-prinComp  = data * V * diag(LInv);
-loadings = (data')*prinComp;
+    % Mean each row (across frames)
+    MorphMean = mean(data, 2);
+    
+    % Subtract overall mean from each frame
+    data = bsxfun(@minus, data, MorphMean);
+    xxt        = data'*data;
+    [~,LSq,V]  = svd(xxt);
+    LInv       = 1./sqrt(diag(LSq));
+    prinComp  = data * V * diag(LInv);
+    loadings = (data')*prinComp;
 end % end doPCA
 
 
 function [lam1, fro] = block_scale_stats(X)
-% Row-centre within block (match the main script’s convention)
-Xc  = bsxfun(@minus, X, mean(X,2));
-% Leading eigenvalue of Xc'Xc equals the square of the top singular value
-% Using economy SVD is fine here given T << p in your data layout
-[~, S, ~] = svd(Xc' * Xc, 'econ');
-lam1 = S(1,1);
-fro  = norm(Xc, 'fro');
+    % Row-centre within block (match the main script’s convention)
+    Xc  = bsxfun(@minus, X, mean(X,2));
+    % Leading eigenvalue of Xc'Xc equals the square of the top singular value
+    % Using economy SVD is fine here given T << p in your data layout
+    [~, S, ~] = svd(Xc' * Xc, 'econ');
+    lam1 = S(1,1);
+    fro  = norm(Xc, 'fro');
 end
