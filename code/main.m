@@ -1,12 +1,22 @@
 clear all; clc;
-% Paths (match H1/H2 expectation that data file is on MATLAB path)
-projectRoot = '/Users/jaker/Research-Project/data';      % use your real root
+% Paths =====
+projectRoot = '/Users/jaker/Research-Project/data';      
 addpath(projectRoot);
 
 audioFolderPath      = fullfile(projectRoot, 'Audio', 'Raw Audio');
-
 S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % provides 'data'
 data = S.data;
+
+% === Output folders (H1) ===
+resultsRoot = fullfile(projectRoot, 'results');
+h1Root      = fullfile(resultsRoot, 'H1');           
+if ~exist(h1Root, 'dir'); mkdir(h1Root); end
+
+
+
+
+% Controls ====
+nBoots = 100;
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
@@ -30,45 +40,41 @@ for i = 1:size(manifest,1)
     fprintf("Run %d/%d\n",i,size(manifest,1));
     dataIdx = manifest{i,1};
     wavName = manifest{i,2};
-    wavPath = fullfile(audioFolderPath, wavName); % concatenate both parts to make correct wav path
+    wavPath = fullfile(audioFolderPath, wavName);
     nFrames = size(data(dataIdx).mr_warp2D, 2);
 
-    audioFeatures = extractAudioFeatures(wavPath, nFrames);  % [features × frames] 
-    
-    %{
-    
-    r1 = trimodalH1(data, audioFeatures, dataIdx,VERBOSE=true,nBoots=500);          % returns results for H1
+    actorID    = data(dataIdx).actor;
+    sentenceID = data(dataIdx).sentence;
+
+    itemFolder = fullfile(h1Root, sprintf('s%03d_a%02d', sentenceID, actorID));
+if ~exist(itemFolder,'dir'); mkdir(itemFolder); end
+
+    audioFeatures = extractAudioFeatures(wavPath,nFrames);
+
+% Run H1 (minimum test)
+r1 = trimodalH1(data, audioFeatures, dataIdx, ...
+                'reconstructId', 3, ...
+                'shuffleTarget', 1, ...
+                'nBoots', nBoots);
+
+% Slim meta: only keep essentials
+meta = struct( ...
+  'actorID',        actorID, ...
+  'sentenceID',     sentenceID, ...
+  'dataIdx',        dataIdx, ...
+  'observedMode',   'MR+VID', ...   % or 'MR' / 'VID'
+  'reconstructId',  3,        ...   % H1: 3 = Audio
+  'shuffleTarget',  1,        ...   % 1 = MR (refit-null)
+  'nBoots',         nBoots,   ...
+  'rngSeed',        rngSeed,  ...
+  'timestamp',      datetime('now','Format','yyyy-MM-dd_HH:mm:ss'));
 
 
-    % Short H1 summary print
-    fprintf('H1 dataIdx=%d | VAF=%.1f%% | 95%% CI=[%.1f%%, %.1f%%] | p=%.3g | vecR=%.3f (p=%.3g)\n\n', ...
-        dataIdx, ...
-        100*r1.h1_VAF_real, ...
-        100*r1.h1_eval_VAF_ci(1), 100*r1.h1_eval_VAF_ci(2), 
-        r1.h1_eval_VAF_p, ...
-        r1.h1_vecR_real, r1.h1_vecR_p);
+outPath = fullfile(itemFolder, 'H1_MR+VID.mat');
+save(outPath, 'r1', 'meta', '-v7.3');
 
-
-    %}
-    
-
-    r2 = trimodalH2(data, audioFeatures, dataIdx, "VERBOSE",true,nBoots=500);          % returns results for H2
-    % Short H2 summary print
-    
-    fprintf('H2 Bi baseline (target=%s): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
-        r2.h2_reconstructId, r2.h2_bi.R, r2.h2_bi.slope, r2.h2_bi.SSE);
-    fprintf('H2 Tri (real): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
-        r2.h2_tri.R, r2.h2_tri.slope, r2.h2_tri.SSE);
-    fprintf('H2 ΔTri−Bi: ΔR=%.4f (p=%.3g, 95%% CI=[%.4f, %.4f]) | ΔSSE=%.3e (p=%.3g, 95%% CI=[%.3e, %.3e])\n\n', ...
-        r2.h2_delta.dR, ...
-        r2.h2_delta_p.dR, ...
-        r2.h2_delta_ci.dR(1), r2.h2_delta_ci.dR(2), ...
-        r2.h2_delta.dSSE, ...
-        r2.h2_delta_p.dSSE, ...
-        r2.h2_delta_ci.dSSE(1), r2.h2_delta_ci.dSSE(2));
-
-    
 end
+
 
 
 
