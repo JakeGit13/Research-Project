@@ -1,18 +1,29 @@
-function audioFeatures = extractAudioFeatures(wavPath, nFrames)
+function audioFeatures = extractAudioFeatures(wavPath, nFrames, opts)
+
+    arguments
+        wavPath (1,:) char
+        nFrames (1,1) double 
+        opts.VERBOSE (1,1) logical = false
+    end
+    
+    VERBOSE = opts.VERBOSE;     
 
 
-    %% Load & clean audio (R-L if stereo; if mono, use as-is)
+    %% Load & clean audio DOUBLE CHECK THIS IS RIGHT 
     [Y, FS] = audioread(wavPath);
     if size(Y,2) == 2
         cleanAudio = Y(:,2) - Y(:,1);
     else
         cleanAudio = Y;
     end
+
     cleanAudio = cleanAudio(:);
     fprintf('Extracting features from: %s\n', wavPath);
-    fprintf('Length: %.2fs\n', numel(cleanAudio)/FS);
-    
-    fprintf('Frames (MR/Video): %d\n', nFrames);
+
+    if VERBOSE
+        fprintf('Length: %.2fs\n', numel(cleanAudio)/FS);
+        fprintf('Frames (MR/Video): %d\n', nFrames);
+    end
 
     %% Define frame boundaries
     totalDuration = numel(cleanAudio)/FS;
@@ -326,7 +337,9 @@ function audioFeatures = extractAudioFeatures(wavPath, nFrames)
         % Store per-frame row
         allFrameFeatures(frameIdx, :) = frameFeatures;  %#ok<AGROW>
         if mod(frameIdx,10)==0
-            fprintf('    [progress] %d/%d frames\n', frameIdx, nFrames);
+            if VERBOSE
+                fprintf('    [progress] %d/%d frames\n', frameIdx, nFrames);
+            end
         end
     end
 

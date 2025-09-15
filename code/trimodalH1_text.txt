@@ -1,63 +1,54 @@
-function trimodalH1
+function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
-clc;
-
-dataDir = '/Users/jaker/Research-Project/data';
-dataFile = 'mrAndVideoData.mat';
-audioFile = 'audioFeaturesData.mat';
-
-
-usePar = true; % remove this as no option for series processing, not sure if that's a bad thing
-VERBOSE = true;
-
-reconstructId = 3;   % H1 target: must be 3 (Audio)
-shuffleTarget  = 3;  % H1 eval-only + (optional) refit-permutation use Audio
-
-% H1 source–contribution: which observed block(s) may inform the scores?
-% Options: 'MR+VID' (default), 'MR', 'VID'
-observedMode = 'MR+VID';
+    % Inputs:
+    %   data           : struct array with .mr_warp2D, .vid_warp2D 
+    %   audioFeatures  : [F × T] matrix for this sentence (already transposed)
+    %   dataIdx        : index into 'data'
     
-if reconstructId ~= 3
-    error('H1 source–contribution requires reconstructId==3 (Audio as target).');
-end
-if ~ismember(observedMode, {'MR+VID','MR','VID'})
-    error('observedMode must be ''MR+VID'', ''MR'', or ''VID''.');
-end
-blockNames = {'MR','Video','Audio'};
-
-
-nBoots = 100; % # bootstraps
-% ******************************************************************************************************************************************************
-
-
-% Reset random seed
-rng('default');
-
-addpath(dataDir) % Add the user-defined data directory to the path 
-load(dataFile,'data');          % MR + video
-load(audioFile,'audioData');   % Audio
-
-
-actors = [data.actor]; % Array of actor numbers
-sentences = [data.sentence]; % Array of sentence numbers
-
-
-
-%% PCA on hybrid facial video and vocal-tract MR images
-
-for ii = 9%:length(actors)
     
-    clear results;
+    %% Default options  =======================================================================================
+    arguments
+        data
+        audioFeatures
+        dataIdx (1,1) double
+        opts.usePar (1,1) logical = true    % Need to get rid
+        opts.reconstructId = 3;     % Double check if these are the right defaults
+        opts.shuffleTarget = 3;
+        opts.nBoots (1,1) double  = 100
+        opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
+        opts.VERBOSE (1,1) logical = false 
+        opts.genFigures = false;
+    end
+
+
+    usePar      = opts.usePar;  % Need to remove this
+    reconstructId = opts.reconstructId;
+    shuffleTarget  = opts.shuffleTarget;
+    nBoots      = opts.nBoots;
+    observedMode= opts.observedMode; % Which observed block(s) may inform the scores?
+    VERBOSE     = opts.VERBOSE;    
+    genfigures = opts.genFigures;
+
+    blockNames = {'MR','Video','Audio'};    % Used in verbose prints, might get rid 
     
+    
+    
+    % Reset random seed
+    rng('default');
+            
+    
+    %% PCA on hybrid facial video and vocal-tract MR images
+
     %% === Load/Assemble Blocks ===
-    thisMRWarp  = data(ii).mr_warp2D;                         % (p_mr x T)
-    thisVidWarp = data(ii).vid_warp2D;                        % (p_vid x T)
-    thisAudio   = audioData(ii).audioFeatures';  % (p_aud x T)
+    thisMRWarp  = data(dataIdx).mr_warp2D;                         % (p_mr x T)
+    thisVidWarp = data(dataIdx).vid_warp2D;                        % (p_vid x T)
+    thisAudio   = audioFeatures;                                   % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
+    fprintf('Running H1 (reconstructId = %d, shuffletarget = %d, ObservedMode = %s) for item %d...\n', reconstructId, shuffleTarget, observedMode, dataIdx);
+
     if VERBOSE
-        fprintf('Item %d\n', ii);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -70,8 +61,11 @@ for ii = 9%:length(actors)
     [lam1_mr,  fro_mr]   = block_scale_stats(thisMRWarp);
     [lam1_vid, fro_vid]  = block_scale_stats(thisVidWarp);
     [lam1_aud, fro_aud]  = block_scale_stats(thisAudio);
-    fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
+
+    if VERBOSE
+        fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
             lam1_mr, lam1_vid, lam1_aud, fro_mr, fro_vid, fro_aud);
+    end
 
     % Weights to equalise each block's dominant variance scale
     w_mr  = 1/sqrt(lam1_mr);
@@ -87,15 +81,18 @@ for ii = 9%:length(actors)
     [lam1_mr_a,  fro_mr_a]   = block_scale_stats(thisMRWarpW);
     [lam1_vid_a, fro_vid_a]  = block_scale_stats(thisVidWarpW);
     [lam1_aud_a, fro_aud_a]  = block_scale_stats(thisAudioW);
-    fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
-            lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+
+    if VERBOSE
+        fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
+                lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+    end
 
     % Use weighted blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
 
 
 
-%% ============================================================================
+    %% ============================================================================
 
     
     % Perform a PCA on the hybrid data
@@ -150,8 +147,6 @@ for ii = 9%:length(actors)
         fprintf('H1 observedMode = %s (scores inferred from %s)\n', ...
             observedMode, observedMode);
     end
-
-
 
     %% === H1 Audio feature-space metrics (UNSHUFFLED) =======================
     idx1 = elementBoundaries(reconstructId)+1;
@@ -262,16 +257,20 @@ for ii = 9%:length(actors)
     
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
+    if genfigures
+
+        figure;
+        
+        % Original and reconstructed loadings
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
+        
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
+        
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
+
+    end
 
     % Do the shuffled reconstruction *************************************************************************************************
     
@@ -292,9 +291,7 @@ for ii = 9%:length(actors)
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
     tic
-    if usePar && nCores>2
-        disp('Using parallel processing...');
-        
+    if usePar && nCores>2 % Parallel processing 
         poolOpen = gcp('nocreate');
         if isempty(poolOpen)
             pp = parpool(nCores-1); % Leave one core free
@@ -400,8 +397,6 @@ for ii = 9%:length(actors)
     end
 
 
-
-
     % Unshuffled
     loadings1D = results.nonShuffledLoadings(:);
     reconLoadings1D = results.nonShuffledReconLoadings(:);
@@ -440,57 +435,60 @@ for ii = 9%:length(actors)
     
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
+    if genfigures
+        figure;
         
-        % Shuffled distributions
-        subplot(2,3,statI+3);
+        % Original and reconstructed loadings
+        subplot(2,3,2);
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
         
-        histogram(shuffstats(statI,:),50);hold on
-        axis tight
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
         
-        xlabel(statStrings{statI});ylabel('Frequency');
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
         
-    end
-end
-end % end pcaAndShufflingExample
+        statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
+        
+        for statI = 1:3
+            
+            % Shuffled distributions
+            subplot(2,3,statI+3);
+            
+            histogram(shuffstats(statI,:),50);hold on
+            axis tight
+            plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+            
+            xlabel(statStrings{statI});ylabel('Frequency');
+            
+        end
+
+    end % if genFigures
+
+end % end trimodalH1
 
 %% doPCA
 function [prinComp,MorphMean,loadings] = doPCA(data)
 
-% Mean each row (across frames)
-MorphMean = mean(data, 2);
-
-% Subtract overall mean from each frame
-data = bsxfun(@minus, data, MorphMean);
-xxt        = data'*data;
-[~,LSq,V]  = svd(xxt);
-LInv       = 1./sqrt(diag(LSq));
-prinComp  = data * V * diag(LInv);
-loadings = (data')*prinComp;
+    % Mean each row (across frames)
+    MorphMean = mean(data, 2);
+    
+    % Subtract overall mean from each frame
+    data = bsxfun(@minus, data, MorphMean);
+    xxt        = data'*data;
+    [~,LSq,V]  = svd(xxt);
+    LInv       = 1./sqrt(diag(LSq));
+    prinComp  = data * V * diag(LInv);
+    loadings = (data')*prinComp;
 end % end doPCA
 
 
 function [lam1, fro] = block_scale_stats(X)
-% Row-centre within block (match the main script’s convention)
-Xc  = bsxfun(@minus, X, mean(X,2));
-% Leading eigenvalue of Xc'Xc equals the square of the top singular value
-% Using economy SVD is fine here given T << p in your data layout
-[~, S, ~] = svd(Xc' * Xc, 'econ');
-lam1 = S(1,1);
-fro  = norm(Xc, 'fro');
+    % Row-centre within block (match the main script’s convention)
+    Xc  = bsxfun(@minus, X, mean(X,2));
+    % Leading eigenvalue of Xc'Xc equals the square of the top singular value
+    % Using economy SVD is fine here given T << p in your data layout
+    [~, S, ~] = svd(Xc' * Xc, 'econ');
+    lam1 = S(1,1);
+    fro  = norm(Xc, 'fro');
 end

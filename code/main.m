@@ -30,6 +30,8 @@ manifest = {
 
 
 for i = 1:size(manifest,1)
+
+    fprintf("Run %d/%d\n",i,size(manifest,1));
     dataIdx = manifest{i,1};
     wavName = manifest{i,2};
     wavPath = fullfile(audioFolderPath, wavName); % concatenate both parts to make correct wav path
@@ -37,10 +39,33 @@ for i = 1:size(manifest,1)
 
     audioFeatures = extractAudioFeatures(wavPath, nFrames);  % [features × frames] 
 
-    % r1 = trimodalH1(data, audioFeatures, dataIdx);          % returns results for H1
-    r2 = trimodalH2(data, audioFeatures, dataIdx);          % returns results for H2
 
     
+    
+    r1 = trimodalH1(data, audioFeatures, dataIdx,"VERBOSE",false);          % returns results for H1
+
+    % Short H1 summary print
+    fprintf('H1 dataIdx=%d | VAF=%.1f%% | 95%% CI=[%.1f%%, %.1f%%] | p=%.3g | vecR=%.3f (p=%.3g)\n\n', ...
+    dataIdx, ...
+    100*r1.h1_VAF_real, ...
+    100*r1.h1_eval_VAF_ci(1), 100*r1.h1_eval_VAF_ci(2), ...
+    r1.h1_eval_VAF_p, ...
+    r1.h1_vecR_real, r1.h1_vecR_p);
+
+    %{
+    
+
+    r2 = trimodalH2(data, audioFeatures, dataIdx, "VERBOSE",false);          % returns results for H2
+    % Short H2 summary print
+    
+    fprintf('H2 target=%d | R=%.3f (p=%.3g) | slope=%.3f (p=%.3g) | SSE=%.3e (p=%.3g) | ΔR=%.4f, ΔSSE=%.3e | T=%d\n', ...
+    r2.h2_reconstructId, ...
+    r2.h2_tri.R, r2.h2_p.R, ...
+    r2.h2_tri.slope, r2.h2_p.slope, ...
+    r2.h2_tri.SSE, r2.h2_p.SSE, ...
+    r2.h2_delta.dR, r2.h2_delta.dSSE, ...
+    r2.h2_T);
+    %}
 end
 
 

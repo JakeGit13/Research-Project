@@ -4,7 +4,7 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     %   audioFeatures  : [F × T] matrix for this sentence (already transposed)
     %   dataIdx        : index into 'data'
 
-     %% Default options  =======================================================================================
+    %% Default options  =======================================================================================
     arguments
         data
         audioFeatures
@@ -15,6 +15,7 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
         opts.nBoots (1,1) double  = 100
         opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
         opts.VERBOSE (1,1) logical = false   
+        opts.genFigures = false
     end
 
     usePar      = opts.usePar;  % Need to remove this
@@ -22,7 +23,7 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     shuffleTarget  = opts.shuffleTarget;
     nBoots      = opts.nBoots;
     VERBOSE     = opts.VERBOSE;    
-    
+    genFigures = opts.genFigures;
 
     
     blockNames = {'MR','Video','Audio'}; % used in prints
@@ -39,9 +40,16 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     thisAudio   = audioFeatures;                                   % (p_aud x T)
     
     T = size(thisMRWarp, 2);    % Amount of frames
+       
+    results.h2_reconstructId  = reconstructId;
+    results.h2_T       = T;
+    results.h2_nBoots  = nBoots;
+    results.h2_dims    = struct('p_mr',size(thisMRWarp,1), 'p_vid',size(thisVidWarp,1), 'p_aud',size(thisAudio,1));
+
+
+    fprintf('Running H2 (reconstructId = %d, shuffletarget = %d) for item %d...\n', reconstructId, shuffleTarget, dataIdx);
 
     if VERBOSE
-        fprintf('Running H2 for item %d\n', dataIdx);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -54,9 +62,11 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     [lam1_mr,  fro_mr]   = block_scale_stats(thisMRWarp);
     [lam1_vid, fro_vid]  = block_scale_stats(thisVidWarp);
     [lam1_aud, fro_aud]  = block_scale_stats(thisAudio);
-    fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
-            lam1_mr, lam1_vid, lam1_aud, fro_mr, fro_vid, fro_aud);
 
+    if VERBOSE
+        fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
+                lam1_mr, lam1_vid, lam1_aud, fro_mr, fro_vid, fro_aud);
+    end
     % Weights to equalise each block's dominant variance scale
     w_mr  = 1/sqrt(lam1_mr);
     w_vid = 1/sqrt(lam1_vid);
@@ -71,8 +81,11 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     [lam1_mr_a,  fro_mr_a]   = block_scale_stats(thisMRWarpW);
     [lam1_vid_a, fro_vid_a]  = block_scale_stats(thisVidWarpW);
     [lam1_aud_a, fro_aud_a]  = block_scale_stats(thisAudioW);
-    fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
-            lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+
+    if VERBOSE
+        fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
+                lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+    end 
 
     % Use weighted blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
@@ -164,6 +177,10 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     [R_bi,~] = corr(loadings1D_bi, reconLoadings1D_bi);
     p_bi    = polyfit(loadings1D_bi, reconLoadings1D_bi, 1);
     slope_bi = p_bi(1);
+
+
+    results.h2_bi = struct('R',R_bi, 'slope',slope_bi, 'SSE',SSE_bi);
+
     
     if VERBOSE
         fprintf('H2 Bi baseline: target=%s | R=%.4f, slope=%.4f, SSE=%.3e\n', ...
@@ -173,16 +190,19 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
         
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
+    if genFigures
+        figure;
+        
+        % Original and reconstructed loadings
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
+        
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
+        
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
+
+    end
 
     % Do the shuffled reconstruction *************************************************************************************************
     
@@ -204,8 +224,7 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
     tic
-    if usePar && nCores>2
-        disp('Using parallel processing...');
+    if usePar && nCores>2      % Using parallel processing
         
         poolOpen = gcp('nocreate');
         if isempty(poolOpen)
@@ -213,7 +232,8 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
         end
         
         parfor bootI = 1:nBoots
-            
+   
+
             %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
 
             switch shuffleTarget
@@ -258,7 +278,7 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
             allShuffledReconLoad{bootI} = partial_loading;
         end
     else
-        disp('NOT using parallel processing...');
+        % NOT USING PARALLEL PROCESSING, GET RID
     end
     
     results.allShuffledOrigLoad = allShuffledOrigLoad;
@@ -295,7 +315,17 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     p_R    = mean(shuffstats(1,:) >= unshuffstats(1));
     p_slope= mean(shuffstats(2,:) >= unshuffstats(2));
     p_SSE  = mean(shuffstats(3,:) <= unshuffstats(3)); % SSE lower is better
-    
+
+
+    results.h2_tri = struct('R',unshuffstats(1), 'slope',unshuffstats(2), 'SSE',unshuffstats(3));
+    results.h2_p   = struct('R',p_R, 'slope',p_slope, 'SSE',p_SSE);
+
+
+    % Deltas (Tri − Bi):
+    results.h2_delta = struct( ...
+        'dR',   results.h2_tri.R   - results.h2_bi.R, ...
+        'dSSE', results.h2_tri.SSE - results.h2_bi.SSE);
+        
     if VERBOSE
         fprintf('H2 Tri-real (target=%s): R=%.4f, slope=%.4f, SSE=%.3e | vs Tri-ShufA p: [R=%.3g, slope=%.3g, SSE=%.3g]\n', ...
             blockNames{reconstructId}, unshuffstats(1), unshuffstats(2), unshuffstats(3), p_R, p_slope, p_SSE);
@@ -308,32 +338,35 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
+    if genFigures
+        figure;
         
-        % Shuffled distributions
-        subplot(2,3,statI+3);
+        % Original and reconstructed loadings
+        subplot(2,3,2);
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
         
-        histogram(shuffstats(statI,:),50);hold on
-        axis tight
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
         
-        xlabel(statStrings{statI});ylabel('Frequency');
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
         
-    end
+        statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
+        
+        for statI = 1:3
+            
+            % Shuffled distributions
+            subplot(2,3,statI+3);
+            
+            histogram(shuffstats(statI,:),50);hold on
+            axis tight
+            plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+            
+            xlabel(statStrings{statI});ylabel('Frequency');
+            
+        end
+
+    end % if genFigures
 end
 
 

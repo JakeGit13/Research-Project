@@ -10,22 +10,22 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     arguments
         data
         audioFeatures
-        dataIdx (1,1) double
-        opts.usePar (1,1) logical = true    % Need to get rid
-        opts.reconstructId = 3;     % Double check if these are the right defaults
-        opts.shuffleTarget = 3;
-        opts.nBoots (1,1) double  = 100
-        opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
-        opts.VERBOSE (1,1) logical = false   
+        dataIdx 
+        opts.reconstructId = 3;     % MR = 1, VIDEO = 2, AUDIO = 3
+        opts.shuffleTarget = 1;     % same as reconstructId
+        opts.nBoots = 100
+        opts.observedMode {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
+        opts.VERBOSE = false 
+        opts.genFigures = false;
     end
 
-
-    usePar      = opts.usePar;  % Need to remove this
     reconstructId = opts.reconstructId;
     shuffleTarget  = opts.shuffleTarget;
     nBoots      = opts.nBoots;
     observedMode= opts.observedMode; % Which observed block(s) may inform the scores?
     VERBOSE     = opts.VERBOSE;    
+    genfigures = opts.genFigures;
+
     blockNames = {'MR','Video','Audio'};    % Used in verbose prints, might get rid 
     
     
@@ -43,8 +43,9 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
+    fprintf('Running H1 (reconstructId = %d, shuffletarget = %d, ObservedMode = %s) for item %d...\n', reconstructId, shuffleTarget, observedMode, dataIdx);
+
     if VERBOSE
-        fprintf('Running H1 for item %d\n', dataIdx);
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -57,8 +58,11 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     [lam1_mr,  fro_mr]   = block_scale_stats(thisMRWarp);
     [lam1_vid, fro_vid]  = block_scale_stats(thisVidWarp);
     [lam1_aud, fro_aud]  = block_scale_stats(thisAudio);
-    fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
+
+    if VERBOSE
+        fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
             lam1_mr, lam1_vid, lam1_aud, fro_mr, fro_vid, fro_aud);
+    end
 
     % Weights to equalise each block's dominant variance scale
     w_mr  = 1/sqrt(lam1_mr);
@@ -74,8 +78,11 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     [lam1_mr_a,  fro_mr_a]   = block_scale_stats(thisMRWarpW);
     [lam1_vid_a, fro_vid_a]  = block_scale_stats(thisVidWarpW);
     [lam1_aud_a, fro_aud_a]  = block_scale_stats(thisAudioW);
-    fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
-            lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+
+    if VERBOSE
+        fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
+                lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
+    end
 
     % Use weighted blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
@@ -247,16 +254,20 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
+    if genfigures
+
+        figure;
+        
+        % Original and reconstructed loadings
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
+        
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
+        
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
+
+    end
 
     % Do the shuffled reconstruction *************************************************************************************************
     
@@ -275,93 +286,90 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
     
     % Do PCA on one shuffled combo
-    nCores = feature('numcores');
+    nCores = max(1, feature('numcores') - 1);
     tic
-    if usePar && nCores>2
-        disp('Using parallel processing...');
-        
-        poolOpen = gcp('nocreate');
-        if isempty(poolOpen)
-            pp = parpool(nCores-1); % Leave one core free
-        end
-        
-        parfor bootI = 1:nBoots
-            
-            %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
-
-            switch shuffleTarget
-                case 1  % shuffle MR frames
-                    shMR  = thisMRWarpW(:, permIndexes(bootI,:));
-                    shVID = thisVidWarpW;
-                    shAUD = thisAudioW;
-                case 2  % shuffle Video frames
-                    shMR  = thisMRWarpW;
-                    shVID = thisVidWarpW(:, permIndexes(bootI,:));
-                    shAUD = thisAudioW;
-                case 3  % shuffle Audio frames
-                    shMR  = thisMRWarpW;
-                    shVID = thisVidWarpW;
-                    shAUD = thisAudioW(:, permIndexes(bootI,:));
-                otherwise
-                    error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
-            end
-            shuffWarps_i = [shMR; shVID; shAUD];
-
-            if VERBOSE && bootI==1
-                fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
-            end
-
-
-            [PCA_sh, MorphMean_sh, loadings_sh] = doPCA(shuffWarps_i);
-            
-            % Centre first, then mask hidden/excluded rows
-            partialMorphMean = MorphMean_sh;
-            partial_centered = bsxfun(@minus, shuffWarps_i, partialMorphMean);
-            
-            % Always hide the target (Audio rows)
-            a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
-            partial_centered(a1:a2, :) = 0;
-            
-            % Apply the same observedMode to the shuffled fusion
-            m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2);
-            v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3);
-            switch observedMode
-                case 'MR'
-                    partial_centered(v1:v2, :) = 0;
-                case 'VID'
-                    partial_centered(m1:m2, :) = 0;
-                case 'MR+VID'
-                    
-            end
-            
-            % Sanity: hidden block must be exactly zero after centring+masking
-            aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
-            assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking (shuffled).');
-            partial_loading  = partial_centered' * PCA_sh;
-
-
-
-
-
-            %% === H1 Audio feature-space metric (SHUFFLED) ==========================
-            idx1 = elementBoundaries(reconstructId)+1;
-            idx2 = elementBoundaries(reconstructId+1);
-            
-            P_audio       = PCA_sh(idx1:idx2, :);     % Error under 'PCA'
-            X_audio_true  = bsxfun(@minus, shuffWarps_i(idx1:idx2, :), partialMorphMean(idx1:idx2)); % Error under 'shuffWarps'
-            X_audio_hat   = P_audio * (partial_loading.');
-            
-            aa = zscore(X_audio_true(:));
-            bb = zscore(X_audio_hat(:));
-            shuffAudioVecR(bootI) = corr(aa, bb);
-
-            
-            allShuffledOrigLoad{bootI} = loadings_sh;
-            allShuffledReconLoad{bootI} = partial_loading;
-        end
-    else
-        disp('NOT using parallel processing...');
+    
+    poolOpen = gcp('nocreate');
+    if isempty(poolOpen)
+        pp = parpool(nCores-1); % Leave one core free
     end
+    
+    parfor bootI = 1:nBoots
+        
+        %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
+
+        switch shuffleTarget
+            case 1  % shuffle MR frames
+                shMR  = thisMRWarpW(:, permIndexes(bootI,:));
+                shVID = thisVidWarpW;
+                shAUD = thisAudioW;
+            case 2  % shuffle Video frames
+                shMR  = thisMRWarpW;
+                shVID = thisVidWarpW(:, permIndexes(bootI,:));
+                shAUD = thisAudioW;
+            case 3  % shuffle Audio frames
+                shMR  = thisMRWarpW;
+                shVID = thisVidWarpW;
+                shAUD = thisAudioW(:, permIndexes(bootI,:));
+            otherwise
+                error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
+        end
+        shuffWarps_i = [shMR; shVID; shAUD];
+
+        if VERBOSE && bootI==1
+            fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
+        end
+
+
+        [PCA_sh, MorphMean_sh, loadings_sh] = doPCA(shuffWarps_i);
+        
+        % Centre first, then mask hidden/excluded rows
+        partialMorphMean = MorphMean_sh;
+        partial_centered = bsxfun(@minus, shuffWarps_i, partialMorphMean);
+        
+        % Always hide the target (Audio rows)
+        a1 = elementBoundaries(3)+1; a2 = elementBoundaries(4);
+        partial_centered(a1:a2, :) = 0;
+        
+        % Apply the same observedMode to the shuffled fusion
+        m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2);
+        v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3);
+        switch observedMode
+            case 'MR'
+                partial_centered(v1:v2, :) = 0;
+            case 'VID'
+                partial_centered(m1:m2, :) = 0;
+            case 'MR+VID'
+                
+        end
+        
+        % Sanity: hidden block must be exactly zero after centring+masking
+        aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
+        assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking (shuffled).');
+        partial_loading  = partial_centered' * PCA_sh;
+
+
+
+
+
+        %% === H1 Audio feature-space metric (SHUFFLED) ==========================
+        idx1 = elementBoundaries(reconstructId)+1;
+        idx2 = elementBoundaries(reconstructId+1);
+        
+        P_audio       = PCA_sh(idx1:idx2, :);     % Error under 'PCA'
+        X_audio_true  = bsxfun(@minus, shuffWarps_i(idx1:idx2, :), partialMorphMean(idx1:idx2)); % Error under 'shuffWarps'
+        X_audio_hat   = P_audio * (partial_loading.');
+        
+        aa = zscore(X_audio_true(:));
+        bb = zscore(X_audio_hat(:));
+        shuffAudioVecR(bootI) = corr(aa, bb);
+
+        
+        allShuffledOrigLoad{bootI} = loadings_sh;
+        allShuffledReconLoad{bootI} = partial_loading;
+    end
+    
+    
     
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
@@ -423,32 +431,35 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     
     % Display ************************************************************************************************************************
     
-    figure;
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
+    if genfigures
+        figure;
         
-        % Shuffled distributions
-        subplot(2,3,statI+3);
+        % Original and reconstructed loadings
+        subplot(2,3,2);
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
         
-        histogram(shuffstats(statI,:),50);hold on
-        axis tight
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
         
-        xlabel(statStrings{statI});ylabel('Frequency');
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
         
-    end
+        statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
+        
+        for statI = 1:3
+            
+            % Shuffled distributions
+            subplot(2,3,statI+3);
+            
+            histogram(shuffstats(statI,:),50);hold on
+            axis tight
+            plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+            
+            xlabel(statStrings{statI});ylabel('Frequency');
+            
+        end
+
+    end % if genFigures
 
 end % end trimodalH1
 
