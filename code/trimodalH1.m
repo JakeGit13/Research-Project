@@ -13,7 +13,7 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
         dataIdx 
         opts.reconstructId = 3;     % MR = 1, VIDEO = 2, AUDIO = 3
         opts.shuffleTarget = 1;     % same as reconstructId
-        opts.nBoots = 100
+        opts.nBoots = 1000
         opts.observedMode {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
         opts.VERBOSE = false 
         opts.genFigures = false;
@@ -43,7 +43,7 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     
     T = size(thisMRWarp, 2);    % Amount of frames
 
-    fprintf('Running H1 (reconstructId = %d, shuffletarget = %d, ObservedMode = %s) for item %d...\n', reconstructId, shuffleTarget, observedMode, dataIdx);
+    fprintf('H1: dataIdx=%d | observed=%s → target=%s | nBoots=%d\n', dataIdx, observedMode, blockNames{reconstructId}, nBoots);
 
     if VERBOSE
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
@@ -73,19 +73,17 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     thisMRWarpW   =  w_mr * thisMRWarp;
     thisVidWarpW  =  w_vid * thisVidWarp;
     thisAudioW    =  w_aud * thisAudio;
-
-    % Diagnostics AFTER weighting
-    [lam1_mr_a,  fro_mr_a]   = block_scale_stats(thisMRWarpW);
-    [lam1_vid_a, fro_vid_a]  = block_scale_stats(thisVidWarpW);
-    [lam1_aud_a, fro_aud_a]  = block_scale_stats(thisAudioW);
-
-    if VERBOSE
-        fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
-                lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
-    end
-
-    % Use weighted blocks for PCA and reconstruction
+    
+    % --- Temporal pairing: stack (t, t+1) frames per block ---
+    pair = @(X) [X(:,1:end-1); X(:,2:end)];
+    
+    thisMRWarpW  = pair(thisMRWarpW);
+    thisVidWarpW = pair(thisVidWarpW);
+    thisAudioW   = pair(thisAudioW);
+    
+    % Use weighted + paired blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
+    
 
 
 
@@ -97,13 +95,14 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     
     % Do the non-shuffled reconstruction for the original order **********************************************************************
     
-    % Indexes of boundaries between MR and video
+    % Boundaries / frames AFTER temporal pairing
     bMR  = size(thisMRWarpW, 1);
     bVID = size(thisVidWarpW, 1);
     bAUD = size(thisAudioW,  1);
-
+    
     elementBoundaries = [0, bMR, bMR + bVID, bMR + bVID + bAUD];
-    nFrames = T;  % already defined above
+    nFrames = size(thisMRWarpW, 2);   % Tpair = T-1
+
 
 
     if VERBOSE
@@ -178,7 +177,7 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     results.h1_VAF_real = VAF_real;
     
     if VERBOSE
-        fprintf('H1 (Audio) UNSHUFFLED: VAF=%.1f%% (space=weighted/centred)\n', 100*VAF_real);
+        fprintf('VAF=%.1f%% (space=weighted/centred)\n', 100*VAF_real);
     end
 
     
@@ -238,9 +237,8 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     results.h1_eval_VAF_ci     = VAF_ci_eval;
     
     if VERBOSE
-        fprintf(['H1 (Audio) VAF — EVAL-ONLY: real=%.1f%% | shuffle median=%.1f%% | ' ...
-                 '95%% CI=[%.1f%%, %.1f%%] | p=%.3g\n'], ...
-                100*VAF_real, 100*VAF_med_eval, 100*VAF_ci_eval(1), 100*VAF_ci_eval(2), p_VAF_eval);
+        fprintf(['H1 (VAF, eval-only null): real=%.1f%% | shuffle median=%.1f%% | ' '95%% CI=[%.1f%%, %.1f%%] ' ...
+            '| p=%.3g\n'], 100*VAF_real, 100*VAF_med_eval, 100*VAF_ci_eval(1), 100*VAF_ci_eval(2), p_VAF_eval);
     end
 
 
@@ -312,9 +310,7 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
         end
         shuffWarps_i = [shMR; shVID; shAUD];
 
-        if VERBOSE && bootI==1
-            fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
-        end
+
 
 
         [PCA_sh, morphMean, loadings_sh] = doPCA(shuffWarps_i);
@@ -375,10 +371,9 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     end
     
     
-    
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
-    toc 
+    if VERBOSE, toc; end
     
     %% Statistics ************************************************************************************************************************
     
@@ -405,8 +400,9 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
     
     if VERBOSE
-        fprintf('H1 (Audio) vectorised r: real=%.4f | shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n', ...
-                realVecR, sh_med, sh_ci(1), sh_ci(2), p_vecR);
+        fprintf(['H1 (descriptive) vectorised r: real=%.4f ' ...
+            '| shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n'], ...
+            realVecR, sh_med, sh_ci(1), sh_ci(2), p_vecR);
     end
 
 
@@ -439,11 +435,7 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     p_slope= mean(shuffstats(2,:) >= unshuffstats(2));
     p_SSE  = mean(shuffstats(3,:) <= unshuffstats(3)); % SSE lower is better
     
-    if VERBOSE
-        fprintf('Loadings-space stats (unshuffled): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
-                unshuffstats(1), unshuffstats(2), unshuffstats(3));
-        fprintf('Permutation p-values: p_R=%.3g, p_slope=%.3g, p_SSE=%.3g\n', p_R, p_slope, p_SSE);
-    end
+
 
     
     % Display ************************************************************************************************************************

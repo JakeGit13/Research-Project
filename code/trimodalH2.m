@@ -8,13 +8,12 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     arguments
         data
         audioFeatures
-        dataIdx (1,1) double
-        opts.usePar (1,1) logical = true    % Need to get rid
+        dataIdx 
+        opts.usePar  = true    % Need to get rid
         opts.reconstructId = 1;     % Double check if these are the right defaults
         opts.shuffleTarget = 3;
-        opts.nBoots (1,1) double  = 100
-        opts.observedMode (1,:) char {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
-        opts.VERBOSE (1,1) logical = false   
+        opts.nBoots = 100
+        opts.VERBOSE = false   
         opts.genFigures = false
     end
 
@@ -47,9 +46,11 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     results.h2_dims    = struct('p_mr',size(thisMRWarp,1), 'p_vid',size(thisVidWarp,1), 'p_aud',size(thisAudio,1));
 
 
-    fprintf('Running H2 (reconstructId = %d, shuffletarget = %d) for item %d...\n', reconstructId, shuffleTarget, dataIdx);
+
 
     if VERBOSE
+        fprintf('H2: dataIdx=%d | target=%s | nBoots=%d\n', dataIdx, blockNames{reconstructId}, nBoots); 
+
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   T);
@@ -77,22 +78,19 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     thisVidWarpW  =  w_vid * thisVidWarp;
     thisAudioW    =  w_aud * thisAudio;
 
-    % Diagnostics AFTER weighting
-    [lam1_mr_a,  fro_mr_a]   = block_scale_stats(thisMRWarpW);
-    [lam1_vid_a, fro_vid_a]  = block_scale_stats(thisVidWarpW);
-    [lam1_aud_a, fro_aud_a]  = block_scale_stats(thisAudioW);
-
-    if VERBOSE
-        fprintf('After  weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n\n', ...
-                lam1_mr_a, lam1_vid_a, lam1_aud_a, fro_mr_a, fro_vid_a, fro_aud_a);
-    end 
+    % --- Temporal pairing: stack (t, t+1) frames per block (yields T-1 columns) ---
+    pair = @(X) [X(:,1:end-1); X(:,2:end)];
+    
+    thisMRWarpW  = pair(thisMRWarpW);
+    thisVidWarpW = pair(thisVidWarpW);
+    thisAudioW   = pair(thisAudioW);
 
     % Use weighted blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
 
 
 
-%% ============================================================================
+    %% ============================================================================
 
     
     % Perform a PCA on the hybrid data
@@ -100,13 +98,12 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     
     % Do the non-shuffled reconstruction for the original order **********************************************************************
     
-    % Indexes of boundaries between MR and video
+    % Boundaries and frames AFTER pairing
     bMR  = size(thisMRWarpW, 1);
     bVID = size(thisVidWarpW, 1);
     bAUD = size(thisAudioW,  1);
-
-    elementBoundaries = [0, bMR, bMR + bVID, bMR + bVID + bAUD];
-    nFrames = T;  % already defined above
+    elementBoundaries = [0, bMR, bMR+bVID, bMR+bVID+bAUD];
+    nFrames = size(thisMRWarpW, 2);
 
 
     if VERBOSE
@@ -147,28 +144,24 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
 
     %% === H2 Bi baseline: fit on MR+Video only, same MR/Video weights =======
     % Reuse w_mr and w_vid from Tri to keep MR/Video scaling comparable.
-    mixWarpsBi = [ (w_mr  * thisMRWarp); (w_vid * thisVidWarp) ];
+    thisMRWarpBiW  = pair(w_mr  * thisMRWarp);    % 2*p_mr × (T-1)
+    thisVidWarpBiW = pair(w_vid * thisVidWarp);   % 2*p_vid × (T-1)
+    mixWarpsBi     = [thisMRWarpBiW; thisVidWarpBiW];
     
-    % PCA on Bi
     [origPCA_bi, origMorphMean_bi, origloadings_bi] = doPCA(mixWarpsBi);
     
-    % Boundaries for Bi (no Audio rows here)
-    bMR  = size(w_mr  * thisMRWarp, 1);
-    bVID = size(w_vid * thisVidWarp, 1);
-    elementBoundariesBi = [0, bMR, bMR + bVID];
+    bMR_bi  = size(thisMRWarpBiW, 1);
+    bVID_bi = size(thisVidWarpBiW, 1);
+    elementBoundariesBi = [0, bMR_bi, bMR_bi + bVID_bi];
     
-    % Zero the target block within Bi
-    % Centre first in Bi space, then mask, then project
-    partialMorphMean_bi = origMorphMean_bi;
-    partial_centered_bi = bsxfun(@minus, mixWarpsBi, partialMorphMean_bi);
+    partial_centered_bi = bsxfun(@minus, mixWarpsBi, origMorphMean_bi);
     
     tb1 = elementBoundariesBi(reconstructId)+1;
     tb2 = elementBoundariesBi(reconstructId+1);
     partial_centered_bi(tb1:tb2, :) = 0;
     
-    assert(norm(partial_centered_bi(tb1:tb2,:),'fro')==0, 'Hidden target rows not zero in Bi after masking.');
-    
     partial_loading_bi = partial_centered_bi' * origPCA_bi;
+
     
     % Compute Bi stats now (R, slope, SSE) so we can print them later
     loadings1D_bi      = origloadings_bi(:);
@@ -180,12 +173,6 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
 
 
     results.h2_bi = struct('R',R_bi, 'slope',slope_bi, 'SSE',SSE_bi);
-
-    
-    if VERBOSE
-        fprintf('H2 Bi baseline: target=%s | R=%.4f, slope=%.4f, SSE=%.3e\n', ...
-            blockNames{reconstructId}, R_bi, slope_bi, SSE_bi);
-    end
     
         
     % Display ************************************************************************************************************************
@@ -222,68 +209,56 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
 
     
     % Do PCA on one shuffled combo
-    nCores = feature('numcores');
+
     tic
-    if usePar && nCores>2      % Using parallel processing
-        
-        poolOpen = gcp('nocreate');
-        if isempty(poolOpen)
-            pp = parpool(nCores-1); % Leave one core free
+
+
+
+    
+    for bootI = 1:nBoots
+
+
+        %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
+
+        switch shuffleTarget
+            case 1  % shuffle MR frames
+                shMR  = thisMRWarpW(:, permIndexes(bootI,:));
+                shVID = thisVidWarpW;
+                shAUD = thisAudioW;
+            case 2  % shuffle Video frames
+                shMR  = thisMRWarpW;
+                shVID = thisVidWarpW(:, permIndexes(bootI,:));
+                shAUD = thisAudioW;
+            case 3  % shuffle Audio frames
+                shMR  = thisMRWarpW;
+                shVID = thisVidWarpW;
+                shAUD = thisAudioW(:, permIndexes(bootI,:));
+            otherwise
+                error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
         end
+        shuffWarps = [shMR; shVID; shAUD];
+
+
+        [PCA,morphMean,loadings] = doPCA(shuffWarps);
         
-        parfor bootI = 1:nBoots
-   
+        % Centre first by the PCA-fit mean, then mask the hidden target, then project
+        partial_centered = bsxfun(@minus, shuffWarps, morphMean);
+        
+        ts1 = elementBoundaries(reconstructId)+1;
+        ts2 = elementBoundaries(reconstructId+1);
+        partial_centered(ts1:ts2, :) = 0;
+        
+        assert(norm(partial_centered(ts1:ts2,:),'fro')==0, 'Hidden target rows not zero (Tri-ShufA).');
+        
+        partial_loading = partial_centered' * PCA;
 
-            %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
-
-            switch shuffleTarget
-                case 1  % shuffle MR frames
-                    shMR  = thisMRWarpW(:, permIndexes(bootI,:));
-                    shVID = thisVidWarpW;
-                    shAUD = thisAudioW;
-                case 2  % shuffle Video frames
-                    shMR  = thisMRWarpW;
-                    shVID = thisVidWarpW(:, permIndexes(bootI,:));
-                    shAUD = thisAudioW;
-                case 3  % shuffle Audio frames
-                    shMR  = thisMRWarpW;
-                    shVID = thisVidWarpW;
-                    shAUD = thisAudioW(:, permIndexes(bootI,:));
-                otherwise
-                    error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
-            end
-            shuffWarps = [shMR; shVID; shAUD];
-
-            if VERBOSE && bootI==1
-                fprintf('Shuffle check: permuting %s frames only.\n', blockNames{shuffleTarget});
-            end
-
-
-            [PCA,MorphMean,loadings] = doPCA(shuffWarps);
-            
-            % Centre first by the PCA-fit mean, then mask the hidden target, then project
-            partial_centered = bsxfun(@minus, shuffWarps, MorphMean);
-            
-            ts1 = elementBoundaries(reconstructId)+1;
-            ts2 = elementBoundaries(reconstructId+1);
-            partial_centered(ts1:ts2, :) = 0;
-            
-            assert(norm(partial_centered(ts1:ts2,:),'fro')==0, 'Hidden target rows not zero (Tri-ShufA).');
-            
-            partial_loading = partial_centered' * PCA;
-
-
-            
-            allShuffledOrigLoad{bootI} = loadings;
-            allShuffledReconLoad{bootI} = partial_loading;
-        end
-    else
-        % NOT USING PARALLEL PROCESSING, GET RID
+        allShuffledOrigLoad{bootI} = loadings;
+        allShuffledReconLoad{bootI} = partial_loading;
     end
     
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
-    toc 
+    if VERBOSE, toc; end
     
     %% Statistics ************************************************************************************************************************
     
@@ -321,18 +296,37 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     results.h2_p   = struct('R',p_R, 'slope',p_slope, 'SSE',p_SSE);
 
 
-    % Deltas (Tri − Bi):
-    results.h2_delta = struct( ...
-        'dR',   results.h2_tri.R   - results.h2_bi.R, ...
-        'dSSE', results.h2_tri.SSE - results.h2_bi.SSE);
-        
-    if VERBOSE
-        fprintf('H2 Tri-real (target=%s): R=%.4f, slope=%.4f, SSE=%.3e | vs Tri-ShufA p: [R=%.3g, slope=%.3g, SSE=%.3g]\n', ...
-            blockNames{reconstructId}, unshuffstats(1), unshuffstats(2), unshuffstats(3), p_R, p_slope, p_SSE);
+    % --- Deltas (Tri − Bi): real and shuffle-null ---
+    dR_real   = unshuffstats(1) - R_bi;
+    dSSE_real = unshuffstats(3) - SSE_bi;
     
-        fprintf('H2 Bi baseline (target=%s): R=%.4f, slope=%.4f, SSE=%.3e | ΔR=%.4f, ΔSSE=%.3e (Tri−Bi)\n', ...
-            blockNames{reconstructId}, R_bi, slope_bi, SSE_bi, unshuffstats(1) - R_bi, unshuffstats(3) - SSE_bi);
+    % Per-shuffle deltas (Tri_shuff − Bi); Bi is constant
+    dR_shuff   = shuffstats(1,:) - R_bi;
+    dSSE_shuff = shuffstats(3,:) - SSE_bi;
+    
+    results.h2_delta       = struct('dR', dR_real, 'dSSE', dSSE_real);
+    results.h2_delta_null  = struct('dR', dR_shuff, 'dSSE', dSSE_shuff);
+    
+    % One-sided p-values in the beneficial direction:
+    %   R:   larger is better  → p = P(Δ_shuff ≥ Δ_real)
+    %   SSE: smaller is better → p = P(Δ_shuff ≤ Δ_real)
+    p_dR   = mean(dR_shuff   >= dR_real);
+    p_dSSE = mean(dSSE_shuff <= dSSE_real);
+    
+    ci_dR   = prctile(dR_shuff,   [2.5 97.5]);
+    ci_dSSE = prctile(dSSE_shuff, [2.5 97.5]);
+    
+    results.h2_delta_p   = struct('dR', p_dR, 'dSSE', p_dSSE);
+    results.h2_delta_ci  = struct('dR', ci_dR, 'dSSE', ci_dSSE);
+    
+    if VERBOSE
+        fprintf('H2 Bi baseline (target=%s): R=%.4f, slope=%.4f, SSE=%.3e\n', ...
+            blockNames{reconstructId}, R_bi, slope_bi, SSE_bi);
+    fprintf(['H2 ΔTri−Bi (Audio-shuffle null): ΔR=%.4f (p=%.3g, 95%% CI=[%.4f, %.4f]) ' ...
+        '| ΔSSE=%.3e (p=%.3g, 95%% CI=[%.3e, %.3e])\n'], dR_real, p_dR, ci_dR(1), ci_dR(2), ...
+        dSSE_real, p_dSSE, ci_dSSE(1), ci_dSSE(2));
     end
+
 
 
     
@@ -371,13 +365,13 @@ end
 
 
 %% doPCA
-function [prinComp,MorphMean,loadings] = doPCA(data)
+function [prinComp,morphMean,loadings] = doPCA(data)
 
     % Mean each row (across frames)
-    MorphMean = mean(data, 2);
+    morphMean = mean(data, 2);
     
     % Subtract overall mean from each frame
-    data = bsxfun(@minus, data, MorphMean);
+    data = bsxfun(@minus, data, morphMean);
     xxt        = data'*data;
     [~,LSq,V]  = svd(xxt);
     LInv       = 1./sqrt(diag(LSq));
