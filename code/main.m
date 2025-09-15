@@ -1,16 +1,13 @@
 clear all; clc;
-
-
 % Paths (match H1/H2 expectation that data file is on MATLAB path)
 projectRoot = '/Users/jaker/Research-Project/data';      % use your real root
 addpath(projectRoot);
 
 audioFolderPath      = fullfile(projectRoot, 'Audio', 'Raw Audio');
 
-
-% Load MR/Video once to obtain per-item frame counts
 S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % provides 'data'
-data = S.data;                                                    % fields used by H1/H2 too. :contentReference[oaicite:4]{index=4}
+data = S.data;
+                          % fields used by H1/H2 too. :contentReference[oaicite:4]{index=4}
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
@@ -42,15 +39,16 @@ for i = 1:size(manifest,1)
 
     
     
-    r1 = trimodalH1(data, audioFeatures, dataIdx,"VERBOSE",false);          % returns results for H1
+    r1 = trimodalH1(data, audioFeatures, dataIdx);          % returns results for H1
 
     % Short H1 summary print
     fprintf('H1 dataIdx=%d | VAF=%.1f%% | 95%% CI=[%.1f%%, %.1f%%] | p=%.3g | vecR=%.3f (p=%.3g)\n\n', ...
-    dataIdx, ...
-    100*r1.h1_VAF_real, ...
-    100*r1.h1_eval_VAF_ci(1), 100*r1.h1_eval_VAF_ci(2), ...
-    r1.h1_eval_VAF_p, ...
-    r1.h1_vecR_real, r1.h1_vecR_p);
+        dataIdx, ...
+        100*r1.h1_VAF_real, ...
+        100*r1.h1_refit_VAF_ci(1), 100*r1.h1_refit_VAF_ci(2), ...
+        r1.h1_refit_VAF_p, ...
+        r1.h1_vecR_real, r1.h1_vecR_p);
+
 
     %{
     

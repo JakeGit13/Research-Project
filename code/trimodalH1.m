@@ -209,22 +209,18 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     shuffAudioVecR_eval = nan(1, nBoots);
     shuffAudioVAF_eval  = nan(1, nBoots); 
     
-    % Use parallel if available (cheap either way)
-    nCores = feature('numcores');
-    if usePar && nCores > 2
-        parfor b = 1:nBoots
-            Xa_true_sh = X_audio_true(:, permIdx_eval(b,:));  % permuted true audio
-            aa = zscore(Xa_true_sh(:));
-            bb = zscore(X_audio_hat(:));                      % fixed reconstruction from MR+Video
-            shuffAudioVecR_eval(b) = corr(aa, bb);
-
-            % after you build Xa_true_sh
-            SSE_sh = sum((Xa_true_sh(:) - X_audio_hat(:)).^2);
-            VAF_sh = 1 - SSE_sh / SSE0_real;
-            shuffAudioVAF_eval(b) = VAF_sh;
-
-        end
+    for b = 1:nBoots
+        Xa_true_sh = X_audio_true(:, permIdx_eval(b,:));
+        aa = zscore(Xa_true_sh(:));
+        bb = zscore(X_audio_hat(:));
+        shuffAudioVecR_eval(b) = corr(aa, bb);
+    
+        SSE_sh = sum((Xa_true_sh(:) - X_audio_hat(:)).^2);
+        VAF_sh = 1 - SSE_sh / SSE0_real;
+        shuffAudioVAF_eval(b) = VAF_sh;
     end
+
+    
     
     % Summarise this H1-appropriate null
     realVecR_eval = vecR_real;
@@ -286,15 +282,15 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
     
     % Do PCA on one shuffled combo
-    nCores = max(1, feature('numcores') - 1);
     tic
     
-    poolOpen = gcp('nocreate');
-    if isempty(poolOpen)
-        pp = parpool(nCores-1); % Leave one core free
-    end
+    shuffAudioVecR = nan(1, nBoots);
+    shuffAudioVAF  = nan(1, nBoots);
     
-    parfor bootI = 1:nBoots
+    idx1 = elementBoundaries(reconstructId)+1;
+    idx2 = elementBoundaries(reconstructId+1);
+    
+    for bootI = 1:nBoots
         
         %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
 
@@ -321,10 +317,10 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
         end
 
 
-        [PCA_sh, MorphMean_sh, loadings_sh] = doPCA(shuffWarps_i);
+        [PCA_sh, morphMean, loadings_sh] = doPCA(shuffWarps_i);
         
         % Centre first, then mask hidden/excluded rows
-        partialMorphMean = MorphMean_sh;
+        partialMorphMean = morphMean;
         partial_centered = bsxfun(@minus, shuffWarps_i, partialMorphMean);
         
         % Always hide the target (Audio rows)
@@ -353,16 +349,25 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
 
         %% === H1 Audio feature-space metric (SHUFFLED) ==========================
-        idx1 = elementBoundaries(reconstructId)+1;
-        idx2 = elementBoundaries(reconstructId+1);
+
         
         P_audio       = PCA_sh(idx1:idx2, :);     % Error under 'PCA'
-        X_audio_true  = bsxfun(@minus, shuffWarps_i(idx1:idx2, :), partialMorphMean(idx1:idx2)); % Error under 'shuffWarps'
+        X_audio_true  = bsxfun(@minus, shuffWarps_i(idx1:idx2, :), morphMean(idx1:idx2));
         X_audio_hat   = P_audio * (partial_loading.');
         
         aa = zscore(X_audio_true(:));
         bb = zscore(X_audio_hat(:));
         shuffAudioVecR(bootI) = corr(aa, bb);
+
+
+
+        
+        SSE_sh  = sum((X_audio_true(:) - X_audio_hat(:)).^2);
+        SSE0_sh = sum(X_audio_true(:).^2);       % denom per-shuffle (perm doesn’t change sumsq)
+        shuffAudioVAF(bootI) = 1 - SSE_sh / SSE0_sh;
+        
+
+        
 
         
         allShuffledOrigLoad{bootI} = loadings_sh;
@@ -386,6 +391,18 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     results.h1_vecR_shuff_all = shuffAudioVecR;
     results.h1_vecR_p         = p_vecR;
     results.h1_vecR_ci        = sh_ci;
+
+
+    % === H1 Audio VAF: PRIMARY (REFIT) NULL =================================
+    VAF_real = results.h1_VAF_real;                     % from unshuffled
+    VAF_med  = median(shuffAudioVAF, 'omitnan');
+    VAF_ci   = prctile(shuffAudioVAF, [2.5 97.5]);
+    p_VAF    = mean(shuffAudioVAF >= VAF_real);         % one-sided: shuffle >= real
+    
+    results.h1_refit_VAF_shuffs = shuffAudioVAF;
+    results.h1_refit_VAF_p      = p_VAF;
+    results.h1_refit_VAF_ci     = VAF_ci;
+
     
     if VERBOSE
         fprintf('H1 (Audio) vectorised r: real=%.4f | shuffle median=%.4f | 95%% CI=[%.4f, %.4f] | p=%.3g\n', ...
@@ -464,13 +481,13 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 end % end trimodalH1
 
 %% doPCA
-function [prinComp,MorphMean,loadings] = doPCA(data)
+function [prinComp,morphMean,loadings] = doPCA(data)
 
     % Mean each row (across frames)
-    MorphMean = mean(data, 2);
+    morphMean = mean(data, 2);
     
     % Subtract overall mean from each frame
-    data = bsxfun(@minus, data, MorphMean);
+    data = bsxfun(@minus, data, morphMean);
     xxt        = data'*data;
     [~,LSq,V]  = svd(xxt);
     LInv       = 1./sqrt(diag(LSq));
