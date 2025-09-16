@@ -12,11 +12,14 @@ resultsRoot = fullfile(projectRoot, 'results');
 h1Root      = fullfile(resultsRoot, 'H1');           
 if ~exist(h1Root, 'dir'); mkdir(h1Root); end
 
-
+% === Output folders (H2) ===
+h2Root = fullfile(resultsRoot, 'H2');
+if ~exist(h2Root, 'dir'); mkdir(h2Root); end
 
 
 % Controls ====
-nBoots = 100;
+nBoots = 1000;
+doSave = true; 
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
@@ -35,9 +38,11 @@ manifest = {
 };
 
 
-for i = 1:size(manifest,1)
+manifestLength = size(manifest,1);
 
-    fprintf("Run %d/%d\n",i,size(manifest,1));
+for i = 1:manifestLength
+
+    fprintf("Run %d/%d\n",i,manifestLength);
     dataIdx = manifest{i,1};
     wavName = manifest{i,2};
     wavPath = fullfile(audioFolderPath, wavName);
@@ -51,29 +56,83 @@ if ~exist(itemFolder,'dir'); mkdir(itemFolder); end
 
     audioFeatures = extractAudioFeatures(wavPath,nFrames);
 
-% Run H1 (minimum test)
-r1 = trimodalH1(data, audioFeatures, dataIdx, ...
-                'reconstructId', 3, ...
-                'shuffleTarget', 1, ...
-                'nBoots', nBoots);
+%% Run H1 (OBSERVER MR+VID) ==============              
+r1 = trimodalH1(data, audioFeatures, ...
+                dataIdx,reconstructId=3, ...
+                shuffleTarget=1, ...
+                observedMode="MR+VID", ...
+                nBoots=nBoots);
 
-% Slim meta: only keep essentials
+
+% META DATA
 meta = struct( ...
   'actorID',        actorID, ...
   'sentenceID',     sentenceID, ...
   'dataIdx',        dataIdx, ...
   'observedMode',   'MR+VID', ...   % or 'MR' / 'VID'
-  'reconstructId',  3,        ...   % H1: 3 = Audio
+  'reconstructId',  3,        ...   % 3 = Audio
   'shuffleTarget',  1,        ...   % 1 = MR (refit-null)
-  'nBoots',         nBoots,   ...
-  'rngSeed',        rngSeed,  ...
-  'timestamp',      datetime('now','Format','yyyy-MM-dd_HH:mm:ss'));
-
+  'nBoots',         nBoots);
 
 outPath = fullfile(itemFolder, 'H1_MR+VID.mat');
-save(outPath, 'r1', 'meta', '-v7.3');
+
+if doSave
+    save(outPath, 'r1', 'meta', '-v7.3');
+end
+
+
+
+%% Run H1 (OBSERVE MR) ==============
+r1 = trimodalH1(data, audioFeatures, ...
+                dataIdx,reconstructId=3, ...
+                shuffleTarget=1, ...
+                observedMode="MR", ...
+                nBoots=nBoots);
+
+% META DATA
+meta = struct( ...
+  'actorID',        actorID, ...
+  'sentenceID',     sentenceID, ...
+  'dataIdx',        dataIdx, ...
+  'observedMode',   'MR', ...   % or 'MR' / 'VID'
+  'reconstructId',  3,        ...   % 3 = Audio
+  'shuffleTarget',  1,        ...   % 1 = MR (refit-null)
+  'nBoots',         nBoots);
+
+outPath = fullfile(itemFolder, 'H1_MR_ONLY.mat');
+
+if doSave
+    save(outPath, 'r1', 'meta', '-v7.3');
+end
+
+
+%% Run H1 (OBSERVE VID) ==============
+r1 = trimodalH1(data, audioFeatures, ...
+                dataIdx,reconstructId=3, ...
+                shuffleTarget=2, ...
+                observedMode="VID", ...
+                nBoots=nBoots);
+
+% META DATA
+meta = struct( ...
+  'actorID',        actorID, ...
+  'sentenceID',     sentenceID, ...
+  'dataIdx',        dataIdx, ...
+  'observedMode',   'VID', ...   % or 'MR' / 'VID'
+  'reconstructId',  3,        ...   % 3 = Audio
+  'shuffleTarget',  2,        ...   % 2 = VID
+  'nBoots',         nBoots);
+
+outPath = fullfile(itemFolder, 'H1_VID_ONLY.mat');
+
+if doSave
+    save(outPath, 'r1', 'meta', '-v7.3');
+end
+
 
 end
+
+
 
 
 
