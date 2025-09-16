@@ -1,4 +1,4 @@
-clear all; clc;
+clear all; clc; % Does this get rid of previous saved data?
 % Paths =====
 projectRoot = '/Users/jaker/Research-Project/data';      
 addpath(projectRoot);
@@ -19,7 +19,7 @@ if ~exist(h2Root, 'dir'); mkdir(h2Root); end
 
 % Controls ====
 nBoots = 1000;
-doSave = true; 
+doSave = false; 
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
