@@ -1,4 +1,4 @@
-function summary = qc_H1_results(resultsRoot)
+function summary = analyse_h1_results(resultsRoot)
 % QC for H1 outputs with folder structure:
 % results\H1\actor_##\s###\H1_*.mat
 
@@ -356,4 +356,4 @@ end
 
 
 
-summary = qc_H1_results('C:\Users\jaker\Research-Project\data\results');
+summary = analyse_h1_results('C:\Users\jaker\Research-Project\data\results');
