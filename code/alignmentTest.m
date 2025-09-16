@@ -8,7 +8,7 @@ function alignmentTest()
    
     clc;
 
-    incrementValue = 0;
+    incrementValue = 11;
     
 
     %% Paths and data
