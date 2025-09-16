@@ -20,10 +20,12 @@ if ~exist(h2Root, 'dir'); mkdir(h2Root); end
 
 % Controls ====
 nBoots = 10;
-doSaveH1 = false; 
+
 doH1 = false;
-doH2 = false;
-doSaveH2 = false; 
+doSaveH1 = false; 
+
+doH2 = true;
+doSaveH2 = true; 
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
@@ -59,9 +61,16 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
     itemFolderH1 = fullfile(h1Root, sprintf('s%03d_a%02d', sentenceID, actorID));
     if ~exist(itemFolderH1,'dir'); mkdir(itemFolderH1); end
 
-    % === H2 output subfolder  ===
-    itemFolderH2 = fullfile(h2Root, sprintf('s%03d_a%02d', sentenceID, actorID));
+    % === H2 output subfolder (use actor and wav filename; no s###) ===
+    actorFolderH2 = fullfile(h2Root, sprintf('actor_%02d', actorID));
+    
+    wavStem = regexprep(wavName, '\.wav$', '');           % drop extension
+    wavStem = regexprep(wavStem, '[^a-zA-Z0-9_\-]', '_'); % sanitize for filesystem
+    
+    itemFolderH2 = fullfile(actorFolderH2, wavStem);
+    if ~exist(actorFolderH2, 'dir'); mkdir(actorFolderH2); end
     if ~exist(itemFolderH2,'dir'); mkdir(itemFolderH2); end
+
 
 
     audioFeatures = extractAudioFeatures(wavPath,nFrames);
@@ -173,6 +182,7 @@ if doH2
     if doSaveH2
         save(fullfile(itemFolderH2, 'H2_targetMR_shufAUD.mat'), 'r2_mr', 'metaH2_mr', '-v7.3');
     end
+
     
     % ---- Target = Video (reconstruct Video from MR+Audio) ----
     r2_vid = trimodalH2(data, audioFeatures, dataIdx, ...

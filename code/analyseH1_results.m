@@ -2,6 +2,9 @@ function summary = analyse_h1_results(resultsRoot)
 % QC for H1 outputs with folder structure:
 % results\H1\actor_##\s###\H1_*.mat
 
+if nargin==0 || isempty(resultsRoot)
+    resultsRoot = 'C:\Users\jaker\Research-Project\data\results';
+end
 h1Root = fullfile(resultsRoot,'H1');
 
 % Expected filenames and their metadata expectations
@@ -353,4 +356,4 @@ end
 
 
 
-analyse_h1_results('C:\Users\jaker\Research-Project\data\results');
+summary = analyse_h1_results('C:\Users\jaker\Research-Project\data\results');
