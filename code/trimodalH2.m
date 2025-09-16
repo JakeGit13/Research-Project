@@ -306,6 +306,9 @@ function results = trimodalH2(data, audioFeatures, dataIdx, opts)
     
     results.h2_delta       = struct('dR', dR_real, 'dSSE', dSSE_real);
     results.h2_delta_null  = struct('dR', dR_shuff, 'dSSE', dSSE_shuff);
+
+    results.shuffstats = shuffstats;
+    results.unshuffstats = unshuffstats;
     
     % One-sided p-values in the beneficial direction:
     %   R:   larger is better  → p = P(Δ_shuff ≥ Δ_real)
