@@ -8,7 +8,7 @@ function alignmentTest()
    
     clc;
 
-    incrementValue = 2;
+    incrementValue = 0;
     
 
     %% Paths and data
@@ -18,18 +18,18 @@ function alignmentTest()
 
     %% Manifest (ordered; first item is the one you requested)
     manifest = [ ...
-        entry( 9, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_256_6_svtimriMANUAL.wav', 'sub8_sen_256_6');  % 1
-        entry( 1, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_252_18_svtimriMANUAL.wav',  'sub8_sen_252_18');  % 2       This audio needs to be swapped with...
-        entry( 5, 'C:\Users\jaker\Research-Project\data\audio\sub1_sen_252_1_svtimriMANUAL.wav', 'sub1_sen_252_1'); % 3       ...this audio
-        entry( 6, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_253_18_svtimriMANUAL.wav', 'sub8_sen_253_18'); % 4
-        entry( 7, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_254_15_svtimriMANUAL.wav', 'sub8_sen_254_15'); % 5
-        entry( 8, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_255_17_svtimriMANUAL.wav', 'sub8_sen_255_17'); % 6
-        entry(10, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_257_15_svtimriMANUAL.wav', 'sub8_sen_257_15'); % 7
-        entry(11, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_258_8_svtimriMANUAL.wav',  'sub8_sen_258_8');  % 8
-        entry(12, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_259_18_svtimriMANUAL.wav', 'sub8_sen_259_18'); % 9
-        entry(13, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_260_1_svtimriMANUAL.wav',  'sub8_sen_260_1');  % 10
-        entry(14, 'C:\Users\jaker\Research-Project\data\audio\sub8_sen_261_15_svtimriMANUAL.wav', 'sub8_sen_261_15'); % 11
-        entry(18, 'C:\Users\jaker\Research-Project\data\audio\sub14_sen_252_14_svtimriMANUAL.wav','sub14_sen_252_14') % 12
+        entry( 9, 'C:\Users\jaker\Research-Project\data\Audio\Raw Audio\sub8_sen_256_6_svtimriMANUAL.wav', 'sub8_sen_256_6');  % 1
+        entry( 1, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_252_18_svtimriMANUAL.wav',  'sub8_sen_252_18');  % 2       This audio needs to be swapped with...
+        entry( 5, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub1_sen_252_1_svtimriMANUAL.wav', 'sub1_sen_252_1'); % 3       ...this audio
+        entry( 6, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_253_18_svtimriMANUAL.wav', 'sub8_sen_253_18'); % 4
+        entry( 7, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_254_15_svtimriMANUAL.wav', 'sub8_sen_254_15'); % 5
+        entry( 8, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_255_17_svtimriMANUAL.wav', 'sub8_sen_255_17'); % 6
+        entry(10, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_257_15_svtimriMANUAL.wav', 'sub8_sen_257_15'); % 7
+        entry(11, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_258_8_svtimriMANUAL.wav',  'sub8_sen_258_8');  % 8
+        entry(12, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_259_18_svtimriMANUAL.wav', 'sub8_sen_259_18'); % 9
+        entry(13, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_260_1_svtimriMANUAL.wav',  'sub8_sen_260_1');  % 10
+        entry(14, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub8_sen_261_15_svtimriMANUAL.wav', 'sub8_sen_261_15'); % 11
+        entry(18, 'C:\Users\jaker\Research-Project\data\audio\Raw Audio\sub14_sen_252_14_svtimriMANUAL.wav','sub14_sen_252_14') % 12
     ];
 
     idx = incrementValue + 1;
