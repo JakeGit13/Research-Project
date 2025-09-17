@@ -19,13 +19,13 @@ if ~exist(h2Root, 'dir'); mkdir(h2Root); end
 
 
 % Controls ====
-nBoots = 10;
+nBoots = 1000;
 
 doH1 = false;
 doSaveH1 = false; 
 
-doH2 = true;
-doSaveH2 = true; 
+doH2 = false;
+doSaveH2 = false; 
 
 % Correct map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
