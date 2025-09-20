@@ -1,37 +1,41 @@
-clear all; clc;
-% Paths =====
-projectRoot = '/Users/jaker/Research-Project/data';      
+% ADD INFO HERE 
+
+clearvars; clc;
+
+%% Paths =====
+projectRoot = '/Users/jaker/Research-Project/data';     % This should be the only thing that the user needs to set up? e.g. path to research project?  
 addpath(projectRoot);
 
-audioFolderPath      = fullfile(projectRoot, 'Audio', 'Raw Audio');
-S = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % provides MR / video data struct
-data = S.data;
+% Load in MR and video data struct
+results = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % MR / video data struct 
+mrAndVideoData = results.data;
+
+% Path to raw audio folder
+audioFolderPath = fullfile(projectRoot, 'Audio', 'Raw Audio');     % Where raw audio files are located
 
 resultsRoot = fullfile(projectRoot, 'results'); % Where H1 / H2 results save to 
-
-% === Output folders (H1) ===
-h1Root      = fullfile(resultsRoot, 'H1');           
-if ~exist(h1Root, 'dir'); mkdir(h1Root); end
-
-% === Output folders (H2) ===
-h2Root = fullfile(resultsRoot, 'H2');
-if ~exist(h2Root, 'dir'); mkdir(h2Root); end
+h1CSV = fullfile(resultsRoot, 'h1_results.csv');
+h2CSV = fullfile(resultsRoot, 'h2_results.csv');
 
 
-% Controls ====
-nBoots = 1000;
+%% Controls ====
+nBoots = 10;    % Universal across all tests (1000 as default)
+
+generateCsv = true;
 
 doH1 = false;
-doSaveH1 = false; 
-
 doH2 = false;
-doSaveH2 = false; 
 
-% Correct map between MR/Video and Audio files [dataIdx, filename]
+% Independent switches to write CSVs 
+writeToCsv_h1 = false;
+writeToCsv_h2 = false;
+
+
+% Corrected map between MR/Video and Audio files [dataIdx, filename]
 manifest = {
      9,  'sub8_sen_256_6_svtimriMANUAL.wav';
-     1,  'sub8_sen_252_18_svtimriMANUAL.wav';
-     5,  'sub1_sen_252_1_svtimriMANUAL.wav';
+     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % Swapped dataIdx with ...
+     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % ... this dataIdx
      6,  'sub8_sen_253_18_svtimriMANUAL.wav';
      7,  'sub8_sen_254_15_svtimriMANUAL.wav';
      8,  'sub8_sen_255_17_svtimriMANUAL.wav';
@@ -44,177 +48,122 @@ manifest = {
 };
 
 
-manifestLength = size(manifest,1);
+manifestLength = size(manifest,1) / 12 ; % 3 sentences for testing purposes 
+
 
 for i = 1:manifestLength        % Loop through all 12 sentences using manifest
 
     fprintf("Run %d/%d\n",i,manifestLength);
+
+    % Get necessary attributes for sentence i of the manifest 
     dataIdx = manifest{i,1};
     wavName = manifest{i,2};
+
+    % Get direct path to .wav file of sentence i by concatenating 
     wavPath = fullfile(audioFolderPath, wavName);
-    nFrames = size(data(dataIdx).mr_warp2D, 2);
 
-    actorID    = data(dataIdx).actor;   % RIGHT FIX THIS
-    sentenceID = data(dataIdx).sentence;
+    nFrames = size(mrAndVideoData(dataIdx).mr_warp2D, 2); % Number of MR / video frames 
 
-    % === H1 output subfolder  ===
-    itemFolderH1 = fullfile(h1Root, sprintf('s%03d_a%02d', sentenceID, actorID));
-    if ~exist(itemFolderH1,'dir'); mkdir(itemFolderH1); end
+    actorID    = mrAndVideoData(dataIdx).actor;   
+    sentenceID = mrAndVideoData(dataIdx).sentence;
 
-    % === H2 output subfolder (use actor and wav filename; no s###) ===
-    actorFolderH2 = fullfile(h2Root, sprintf('actor_%02d', actorID));
-    
-    wavStem = regexprep(wavName, '\.wav$', '');           % drop extension
-    wavStem = regexprep(wavStem, '[^a-zA-Z0-9_\-]', '_'); % sanitize for filesystem
-    
-    itemFolderH2 = fullfile(actorFolderH2, wavStem);
-    if ~exist(actorFolderH2, 'dir'); mkdir(actorFolderH2); end
-    if ~exist(itemFolderH2,'dir'); mkdir(itemFolderH2); end
-
-
-
+    % Returns audio features for this sentence
     audioFeatures = extractAudioFeatures(wavPath,nFrames);
 
-
-if doH1
-
-    fprintf("Starting H1\n");
-
-    %% Run H1 (OBSERVER MR+VID) ==============              
-    r1 = trimodalH1(data, audioFeatures, ...
-                    dataIdx,reconstructId=3, ...
-                    shuffleTarget=1, ...
-                    observedMode="MR+VID", ...
-                    nBoots=nBoots);
     
+    if doH1
+        fprintf("Starting H1\n");
     
-    % META DATA
-    meta = struct( ...
-      'actorID',        actorID, ...
-      'sentenceID',     sentenceID, ...
-      'dataIdx',        dataIdx, ...
-      'observedMode',   'MR+VID', ...   % or 'MR' / 'VID'
-      'reconstructId',  3,        ...   % 3 = Audio
-      'shuffleTarget',  1,        ...   % 1 = MR (refit-null)
-      'nBoots',         nBoots);
+        % observedMode + shuffleTarget pairs, add more test conditions here
+        h1TestsParameters = {
+            "MR+VID", 1;
+            "MR",     1;
+            "VID",    2
+        };
     
-    outPath = fullfile(itemFolderH1, 'H1_MR+VID.mat');
+        for k = 1:size(h1TestsParameters,1)
+            observedMode = h1TestsParameters{k,1};
+            shuffleTarget = h1TestsParameters{k,2};
     
-    if doSaveH1
-        save(outPath, 'r1', 'meta', '-v7.3');
-    end
+            r = trimodalH1(mrAndVideoData, audioFeatures, dataIdx, ...
+                           reconstructId=3, shuffleTarget=shuffleTarget, ...
+                           observedMode=observedMode, nBoots=nBoots);
     
-    
-    
-    %% Run H1 (OBSERVE MR) ==============
-    r1 = trimodalH1(data, audioFeatures, ...
-                    dataIdx,reconstructId=3, ...
-                    shuffleTarget=1, ...
-                    observedMode="MR", ...
-                    nBoots=nBoots);
-    
-    % META DATA
-    meta = struct( ...
-      'actorID',        actorID, ...
-      'sentenceID',     sentenceID, ...
-      'dataIdx',        dataIdx, ...
-      'observedMode',   'MR', ...   % or 'MR' / 'VID'
-      'reconstructId',  3,        ...   % 3 = Audio
-      'shuffleTarget',  1,        ...   % 1 = MR (refit-null)
-      'nBoots',         nBoots);
-    
-    outPath = fullfile(itemFolderH1, 'H1_MR.mat');
-    
-    if doSaveH1
-        save(outPath, 'r1', 'meta', '-v7.3');
-    end
-    
-    
-    %% Run H1 (OBSERVE VID) ==============
-    r1 = trimodalH1(data, audioFeatures, ...
-                    dataIdx,reconstructId=3, ...
-                    shuffleTarget=2, ...
-                    observedMode="VID", ...
-                    nBoots=nBoots);
-    
-    % META DATA
-    meta = struct( ...
-      'actorID',        actorID, ...
-      'sentenceID',     sentenceID, ...
-      'dataIdx',        dataIdx, ...
-      'observedMode',   'VID', ...   % or 'MR' / 'VID'
-      'reconstructId',  3,        ...   % 3 = Audio
-      'shuffleTarget',  2,        ...   % 2 = VID
-      'nBoots',         nBoots);
-    
-    outPath = fullfile(itemFolderH1, 'H1_VID.mat');
-    
-    if doSaveH1
-        save(outPath, 'r1', 'meta', '-v7.3');
-
-        fprintf("H1 Complete!\n");
-    end
-
-end % if do H1
-
-
-if doH2
-    fprintf("Starting H2\n");
-
-    %% H2: Does adding Audio help reconstruct MR/Video?
-
-    
-    % ---- Target = MR (reconstruct MR from Video+Audio) ----
-    r2_mr = trimodalH2(data, audioFeatures, dataIdx, ...
-                       reconstructId=1, ...   % target MR
-                       shuffleTarget=3, ...    % shuffle Audio for null
-                       nBoots=nBoots);
-    
-    metaH2_mr = struct( ...
-      'actorID',       actorID, ...
-      'sentenceID',    sentenceID, ...
-      'dataIdx',       dataIdx, ...
-      'reconstructId', 1, ...      % MR
-      'shuffleTarget', 3, ...      % Audio
-      'wavName',       wavName, ...
-      'nBoots',        nBoots);
-    
-    if doSaveH2
-        save(fullfile(itemFolderH2, 'H2_targetMR_shufAUD.mat'), 'r2_mr', 'metaH2_mr', '-v7.3');
+            if ~isfile(h1CSV), generateEmptyCSV(r, h1CSV); end
+            if writeToCsv_h1 && isfile(h1CSV), appendToCSV(r, h1CSV); end
+        end
     end
 
     
-    % ---- Target = Video (reconstruct Video from MR+Audio) ----
-    r2_vid = trimodalH2(data, audioFeatures, dataIdx, ...
-                        reconstructId=2, ...   % target Video
-                        shuffleTarget=3, ...    % shuffle Audio for null
-                        nBoots=nBoots);
     
-    metaH2_vid = struct( ...
-      'actorID',       actorID, ...
-      'sentenceID',    sentenceID, ...
-      'dataIdx',       dataIdx, ...
-      'reconstructId', 2, ...      % Video
-      'shuffleTarget', 3, ...      % Audio
-      'wavName',       wavName, ...
-      'nBoots',        nBoots);
-
-    fprintf('H2 MR: Tri R=%.3f vs Bi R=%.3f | ΔR=%.3f (p=%.3g)\n', ...
-    r2_mr.h2_tri.R, r2_mr.h2_bi.R, r2_mr.h2_delta.dR, r2_mr.h2_delta_p.dR);
-    fprintf('H2 VID: Tri R=%.3f vs Bi R=%.3f | ΔR=%.3f (p=%.3g)\n', ...
-        r2_vid.h2_tri.R, r2_vid.h2_bi.R, r2_vid.h2_delta.dR, r2_vid.h2_delta_p.dR);
-
     
-    if doSaveH2
-        save(fullfile(itemFolderH2, 'H2_targetVID_shufAUD.mat'), 'r2_vid', 'metaH2_vid', '-v7.3');
+    if doH2
+        fprintf("Starting H2\n");
+    
+        r2_mr = trimodalH2(mrAndVideoData, audioFeatures, dataIdx, ...
+                           reconstructId=1, shuffleTarget=3, nBoots=nBoots);
+        
+        if ~isfile(h2CSV), generateEmptyCSV(r2_mr, h2CSV); end % Only generate if no CSV file is there
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(r2_mr,h2CSV); end   % Append these results for this sentence to the CSV 
+    
+        r2_vid = trimodalH2(mrAndVideoData, audioFeatures, dataIdx, ...
+                            reconstructId=2, shuffleTarget=3, nBoots=nBoots);
+
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(r2_vid,h2CSV); end   % Append these results for this sentence to the CSV 
+        
     end
 
+
+    fprintf("Done\n");
 
 end
 
 
+function appendToCSV(resultStruct, csvPath)
 
+    % Read header (column order)
+    options = detectImportOptions(csvPath);
+    headerVariables = options.VariableNames;   % cell array of variable names
+
+    % Build one row in header order; flatten non-scalars
+    row = cell(1, numel(headerVariables));
+    for k = 1:numel(headerVariables)
+        name = headerVariables{k};
+        v = resultStruct.(name);   % will error naturally if field missing
+
+        if (isnumeric(v) || islogical(v)) && isscalar(v)
+            row{k} = v;
+        elseif ischar(v) || (isstring(v) && isscalar(v))
+            row{k} = v;
+        else
+            row{k} = string(jsonencode(v));  % flatten arrays/structs/cells
+        end
+    end
+
+    % Append the row
+    T = cell2table(row, 'VariableNames', headerVariables);
+    writetable(T, csvPath, 'WriteMode', 'append');
 end
+
+
+
+
+
+
+
+function generateEmptyCSV(resultStruct, csvPathIn)
+    % Get field Names of the results from trimodal H1 / H2
+    fn = fieldnames(resultStruct);
+
+    %  Create a 0-row table with those columns to create the header
+    T = cell2table(cell(0, numel(fn)), 'VariableNames', fn);
+
+    % Write header-only CSV (will overwrite if exists)
+    writetable(T, csvPathIn);
+
+    fprintf('Created empty CSV at %s with %d columns.\n', csvPathIn, numel(fn));
+end
+
 
 
 
