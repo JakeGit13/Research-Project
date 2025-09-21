@@ -7,8 +7,8 @@ projectRoot = '/Users/jaker/Research-Project/data';     % This should be the onl
 addpath(projectRoot);
 
 % Load in MR and video data struct
-results = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % MR / video data struct 
-mrAndVideoData = results.data;
+mrAndVid = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % MR / video data struct 
+mrAndVideoData = mrAndVid.data;
 
 % Path to raw audio folder
 audioFolderPath = fullfile(projectRoot, 'Audio', 'Raw Audio');     % Where raw audio files are located

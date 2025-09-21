@@ -2,9 +2,9 @@ function summary = analyse_h1_results(resultsRoot)
 % QC for H1 outputs with folder structure:
 % results\H1\actor_##\s###\H1_*.mat
 
-if nargin==0 || isempty(resultsRoot)
-    resultsRoot = 'C:\Users\jaker\Research-Project\data\results';
-end
+
+clc;
+
 h1Root = fullfile(resultsRoot,'H1');
 
 % Expected filenames and their metadata expectations
@@ -13,6 +13,8 @@ kinds = { ...
   'H1_MR_ONLY.mat','MR',     1; ...
   'H1_VID_ONLY.mat','VID',   2 ...
 };
+
+
 
 % Discover actor folders
 Dactors = dir(h1Root); 
@@ -298,6 +300,71 @@ for mi = 1:numel(modes)
         m, med_d, iqr_d, med_dwo, iqr_dwo, med_v, iqr_v, med_vwo, iqr_vwo);
 end
 
+% ---------- Speaker-balanced summary: per-actor medians & sign test ----------
+fprintf('\n=== Speaker-balanced summary (per-actor medians, by mode) ===\n');
+for mi = 1:numel(modes)
+    m = modes{mi};
+    mrows = rows(strcmp({rows.mode}, m));
+    if isempty(mrows), fprintf('%-7s | N=0\n', m); continue; end
+    % keep entries with a finite actor id
+    mrows = mrows(arrayfun(@(r) isfinite(r.actor), mrows));
+    if isempty(mrows), fprintf('%-7s | N=0\n', m); continue; end
+
+    actors = unique([mrows.actor]);
+    med_dVAF_perActor = nan(size(actors));
+    med_vecR_perActor = nan(size(actors));
+    for i = 1:numel(actors)
+        ai = actors(i);
+        ar = mrows([mrows.actor] == ai);
+        med_dVAF_perActor(i) = median([ar.VAF] - [ar.VAF_med_refit], 'omitnan');
+        med_vecR_perActor(i) = median([ar.vecR], 'omitnan');
+    end
+
+    ci_d = boot_ci_median(med_dVAF_perActor, 5000);
+    ci_r = boot_ci_median(med_vecR_perActor, 5000);
+    p_sign_d = sign_test_right(med_dVAF_perActor);   % H1: ΔVAF > 0 ?
+    p_sign_r = sign_test_right(med_vecR_perActor);   % (optional) vec-r > 0 ?
+
+    txt = strjoin(arrayfun(@(a,md,vr)sprintf('a%02d:ΔVAF=%.3f,vecR=%.3f', ...
+                        a, md, vr), actors, med_dVAF_perActor, med_vecR_perActor, 'uni', 0), '; ');
+    fprintf('%-7s | actors=%d | med(ΔVAF)=%.3f [%.3f, %.3f], sign p=%.3g | med(vecR)=%.3f [%.3f, %.3f], sign p=%.3g\n      %s\n', ...
+        m, numel(actors), median(med_dVAF_perActor,'omitnan'), ci_d(1), ci_d(2), p_sign_d, ...
+        median(med_vecR_perActor,'omitnan'), ci_r(1), ci_r(2), p_sign_r, txt);
+end
+
+
+% ---------- H1: Matched sentence across speakers (explicit list; MR+VID→Audio) ----------
+% Phrase: "Miss black thought about the lap" (sen_252)
+fprintf('\n=== H1: Matched sentence across speakers (MR+VID → Audio) ===\n');
+files_xspeaker = {
+    'C:\Users\jaker\Research-Project\data\results\H1\actor_08\s001\H1_MR+VID.mat', 'a08 s001 — sub8_sen_252_18';
+    'C:\Users\jaker\Research-Project\data\results\H1\actor_01\s001\H1_MR+VID.mat', 'a01 s001 — sub1_sen_252_1';
+    'C:\Users\jaker\Research-Project\data\results\H1\actor_14\s001\H1_MR+VID.mat', 'a14 s001 — sub14_sen_252_14';
+};
+
+for i = 1:size(files_xspeaker,1)
+    f = files_xspeaker{i,1};
+    lab = files_xspeaker{i,2};
+    if ~isfile(f), fprintf('%s: MISSING (%s)\n', lab, f); continue; end
+
+    S = load(f);
+    % pick result struct (your H1 saves either as r1 or results)
+    if isfield(S,'r1'), R = S.r1;
+    elseif isfield(S,'results'), R = S.results;
+    else, R = struct(); 
+    end
+
+    % pull metrics from the actual H1 fields
+    VAF_real = NaN; if isfield(R,'h1_VAF_real'), VAF_real = R.h1_VAF_real; end
+    vecR     = NaN; if isfield(R,'h1_vecR_real'), vecR     = R.h1_vecR_real; end
+    refitSh  = [];  if isfield(R,'h1_refit_VAF_shuffs'), refitSh = R.h1_refit_VAF_shuffs; end
+    VAF_med_refit = NaN; if ~isempty(refitSh), VAF_med_refit = median(refitSh,'omitnan'); end
+
+    dVAF = VAF_real - VAF_med_refit;
+    fprintf('%s | ΔVAF=%.3f | vecR=%.3f | VAF=%.3f | ref_med=%.3f\n', lab, dVAF, vecR, VAF_real, VAF_med_refit);
+end
+
+
 % ---------- Top & Bottom 3 items by ΔVAF per mode ----------
 fprintf('\n=== Extremes by ΔVAF (Top 3 / Bottom 3) per mode ===\n');
 for mi = 1:numel(modes)
@@ -354,6 +421,29 @@ function [med,q1,q3,iqrW] = robust_stats(x)
     iqrW = q3 - q1;
 end
 
+function ci = boot_ci_median(x, B)
+    x = x(~isnan(x));
+    if numel(x) < 2, ci = [NaN NaN]; return; end
+    if nargin < 2, B = 5000; end
+    n = numel(x); meds = zeros(B,1);
+    for b = 1:B
+        idx = randi(n, n, 1);
+        meds(b) = median(x(idx));
+    end
+    ci = quantile(meds, [0.025 0.975]);
+end
+
+function p = sign_test_right(d)
+    % One-sided sign test for median(d) > 0
+    d = d(~isnan(d));
+    d = d(d~=0);  % drop zeros per sign-test convention
+    n = numel(d);
+    if n == 0, p = NaN; return; end
+    k = sum(d > 0);
+    p = binocdf(k-1, n, 0.5, 'upper');
+end
 
 
-summary = analyse_h1_results('C:\Users\jaker\Research-Project\data\results');
+
+
+analyse_h1_results('C:\Users\jaker\Research-Project\data\results');

@@ -1,6 +1,7 @@
 function analyse_H2_results(h2Root)
 % Super short H2 summary: Tri vs Bi R with ΔR. No analysis, just prints.
 
+clc;
 
 actors = dir(fullfile(h2Root,'actor_*')); actors = actors([actors.isdir]);
 fprintf('=== H2 summary ===\nRoot: %s\n', h2Root);

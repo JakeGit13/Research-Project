@@ -1,45 +1,25 @@
-function audioFeatures = extractAudioFeatures(wavPath, nFrames, opts)
-
+function audioFeatures = extractAudioFeaturesTEST(wavPath, nFrames, opts)   
+    
+    % Default arguments 
     arguments
         wavPath (1,:) char
         nFrames (1,1) double 
-        opts.VERBOSE (1,1) logical = false
+        opts.VERBOSE (1,1) logical = false  % false as default
+        opts.PLOTTING (1,1) logical = false  % false as default
     end
     
-    VERBOSE = opts.VERBOSE;     
+    VERBOSE = opts.VERBOSE;   
+
+    clc;   
 
 
-    %% Load & clean audio DOUBLE CHECK THIS IS RIGHT 
-    [Y, FS] = audioread(wavPath);
-    if size(Y,2) == 2
-        cleanAudio = Y(:,2) - Y(:,1);
-    else
-        cleanAudio = Y;
-    end
 
-    cleanAudio = cleanAudio(:);
-    fprintf('Extracting features from: %s\n', wavPath);
-
-    if VERBOSE
-        fprintf('Length: %.2fs\n', numel(cleanAudio)/FS);
-        fprintf('Frames (MR/Video): %d\n', nFrames);
-    end
-
-    %% Define frame boundaries
-    totalDuration = numel(cleanAudio)/FS;
-    frameEdges = linspace(0, totalDuration, nFrames + 1);
-
-    %% Parameters you already had
-    winDur_ms = 25; hopDur_ms = 5;
-    winSamp = round(winDur_ms * FS / 1000);
-    hopSamp = round(hopDur_ms * FS / 1000);
-    hammingWin = hamming(winSamp, 'periodic');
 
     %% === Your existing feature extraction, unchanged in spirit ===
     allFrameFeatures = [];   % will be [T x F] as in your original
     for frameIdx = 1:nFrames
         % -- get frame slice --
-        t0 = frameEdges(frameIdx); t1 = frameEdges(frameIdx+1);
+        t0 = frameBounds(frameIdx); t1 = frameBounds(frameIdx+1);
         segStart = max(1, floor(t0 * FS) + 1);
         segEnd   = min(numel(cleanAudio), floor(t1 * FS));
         frameAudio = cleanAudio(segStart:segEnd);
@@ -351,4 +331,56 @@ function audioFeatures = extractAudioFeatures(wavPath, nFrames, opts)
     
 end
 
+
+
+% Corrected map between MR/Video and Audio files [dataIdx, filename]
+manifest = {
+     9,  'sub8_sen_256_6_svtimriMANUAL.wav';
+     1,  'sub8_sen_252_18_svtimriMANUAL.wav';   % Swapped dataIdx with ...
+     5,  'sub1_sen_252_1_svtimriMANUAL.wav';    % ... this dataIdx
+     6,  'sub8_sen_253_18_svtimriMANUAL.wav';
+     7,  'sub8_sen_254_15_svtimriMANUAL.wav';
+     8,  'sub8_sen_255_17_svtimriMANUAL.wav';
+    10,  'sub8_sen_257_15_svtimriMANUAL.wav';
+    11,  'sub8_sen_258_8_svtimriMANUAL.wav';
+    12,  'sub8_sen_259_18_svtimriMANUAL.wav';
+    13,  'sub8_sen_260_1_svtimriMANUAL.wav';
+    14,  'sub8_sen_261_15_svtimriMANUAL.wav';
+    18,  'sub14_sen_252_14_svtimriMANUAL.wav'
+};
+
+
+% Pick one
+% Find the num frames of that MR and then pass both in 
+
+
+%% Paths =====
+projectRoot = '/Users/jaker/Research-Project/data';     % This should be the only thing that the user needs to set up? e.g. path to research project?  
+addpath(projectRoot);
+
+% Load in MR and video data struct
+mrAndVid = load(fullfile(projectRoot, 'mrAndVideoData.mat'), 'data');   % MR / video data struct 
+mrAndVideoData = mrAndVid.data;
+
+% Path to raw audio folder
+audioFolderPath = fullfile(projectRoot, 'Audio', 'Raw Audio');     % Where raw audio files are located
+
+
+
+manifestLength = size(manifest,1) / 12;
+
+for i = 1:manifestLength
+
+    % Get necessary attributes for sentence i of the manifest 
+    dataIdx = manifest{i,1};
+    wavName = manifest{i,2};
+
+    % Get direct path to .wav file of sentence i by concatenating 
+    wavPath = fullfile(audioFolderPath, wavName);
+
+    nFrames = size(mrAndVideoData(dataIdx).mr_warp2D, 2); % Number of MR / video frames 
+
+    extractAudioFeaturesTEST(wavPath, nFrames, VERBOSE = true);
+
+end
 

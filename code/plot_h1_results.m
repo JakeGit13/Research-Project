@@ -11,31 +11,6 @@ function generate_loadings_scatter(results,i)
     xlabel('Original loadings');ylabel('Reconstructed loadings');
     
 
-    %{
-    
-    figure; % Doesn't work as we don't have shuffleStats
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
-        % Shuffled distributions    
-        subplot(2,3,statI+3);    
-        histogram(shuffstats(statI,:),50);hold on    
-        axis tight  
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
-        xlabel(statStrings{statI});ylabel('Frequency');
-    end
-
-    %}
 
 end
 
@@ -93,14 +68,80 @@ files_xspeaker = {
 };
 
 for i = 1:3
+    actorNum = {'8','1','14'};
     S = load(files_xspeaker{i,1});
     if isfield(S,'r1'), R = S.r1; else, R = S.results; end
     generate_loadings_scatter(R, i);  % uses subplot(1,3,i)
-    title(sprintf('MR+VID \x2192 Audio | %s', files_xspeaker{i,2}), 'Interpreter','none');
+    title(sprintf('Actor %s' actorNum, 'Interpreter','none');
 end
 
-sgtitle('H1 — MR+VID \rightarrow Audio | same sentence across actors: "Miss black thought about the lap"', ...
+sgtitle('MR+VID to Audio | same sentence across 3 actors ', ...
         'Interpreter','none');
+
+
+
+% === H1 global summary: ΔVAF across items by mode (single figure) ===
+h1Root = "C:\Users\jaker\Research-Project\data\results\H1";
+
+modes = {'MR+VID','MR','VID'};
+files = {'H1_MR+VID.mat','H1_MR.mat','H1_VID.mat'};
+allDelta = cell(1,3);
+
+actors = dir(fullfile(h1Root,'actor_*')); 
+actors = actors([actors.isdir]);
+
+for a = 1:numel(actors)
+    sents = dir(fullfile(h1Root, actors(a).name, 's*'));
+    sents = sents([sents.isdir]);
+    for s = 1:numel(sents)
+        sd = fullfile(h1Root, actors(a).name, sents(s).name);
+        for m = 1:3
+            fp = fullfile(sd, files{m});
+            if exist(fp,'file')
+                S = load(fp);
+                d = NaN;
+                % try common field names
+                if isfield(S,'deltaVAF'), d = S.deltaVAF; end
+                if isnan(d) && isfield(S,'dVAF'), d = S.dVAF; end
+                % try inside a struct (e.g., results/r1)
+                if isnan(d)
+                    fn = fieldnames(S);
+                    for k = 1:numel(fn)
+                        v = S.(fn{k});
+                        if isstruct(v)
+                            if isfield(v,'deltaVAF'), d = v.deltaVAF; break; end
+                            if isfield(v,'dVAF'), d = v.dVAF; break; end
+                            if isfield(v,'VAF') && isfield(v,'null_med')
+                                d = v.VAF - v.null_med; break;
+                            end
+                        end
+                    end
+                end
+                % fallback: top-level VAF-null_med
+                if isnan(d) && isfield(S,'VAF') && isfield(S,'null_med')
+                    d = S.VAF - S.null_med;
+                end
+                if ~isnan(d), allDelta{m}(end+1) = d; end %#ok<AGROW>
+            end
+        end
+    end
+end
+
+% --- plot: jittered dots per mode with median line ---
+figure('Name','H1 ΔVAF by mode','Color','w'); hold on;
+for m = 1:3
+    y = allDelta{m}(:);
+    x = m + 0.1*randn(size(y));           % light jitter
+    plot(x, y, 'k.', 'MarkerSize', 10);   % dots
+    med = median(y, 'omitnan');
+    plot([m-0.25 m+0.25], [med med], 'r-', 'LineWidth', 2);  % median bar
+end
+yline(0,'k-'); 
+xlim([0.5 3.5]);
+set(gca,'XTick',1:3,'XTickLabel',modes);
+ylabel('ΔVAF (model − shuffle median)'); 
+title('Audio reconstruction (H1): ΔVAF across items by mode');
+
 
 % Optional save:
 % outdir = fullfile('C:\Users\jaker\Research-Project\data\results','figures','H1');
