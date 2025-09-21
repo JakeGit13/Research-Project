@@ -1,4 +1,4 @@
-function audioFeatures = processAudio(wavPath, nFrames, opts)   
+function processedAudio = processAudioFile(wavPath, nFrames, opts)   
     
     % Default arguments 
     arguments
@@ -9,76 +9,83 @@ function audioFeatures = processAudio(wavPath, nFrames, opts)
     end
     
     VERBOSE = opts.VERBOSE;   
-
-    clc;   
-
+    PLOTTING = opts.PLOTTING;
+ 
 
     %% Load audio & remove background noise (SHOULD PLOT SOMETHING HERE)
     [originalAudio, sampleRate] = audioread(wavPath);
     % Simple scanner-noise cancellation by channel subtraction 
     cleanAudio = originalAudio(:,2) - originalAudio(:,1);
     cleanAudio = cleanAudio(:);
-    cleanAudio = cleanAudio - mean(cleanAudio);   % remove DC offset DOUBLE CHECK THAT'S OKAY 
+    cleanAudio = cleanAudio - mean(cleanAudio);   % remove DC offset 
+
+    plotPreprocWaveform(processedAudio, cleanedAudio)  % or originalAudio
+
+    
 
 
     %% Preprocessing ===================================
-
+    
     % Basic info
-    nSamples          = numel(cleanAudio);
-    audioDurationSec  = nSamples / sampleRate;
-
-    if VERBOSE;
-        fprintf('Audio duration (from file) : %.3f s\n', audioDurationSec);
+    nSamples         = numel(cleanAudio);
+    audioDurationSec = nSamples / sampleRate;
+    
+    if VERBOSE
+        fprintf('Audio duration     : %.3f s\n', audioDurationSec);
         fprintf('nFrames (MR)               : %d\n', nFrames);
-        fprintf('Interval per frame         : %.3f s\n\n', audioDurationSec / nFrames);
     end
-
     
-   % Step size in SAMPLES for an even split across the audio
-   samplesPerFrame = nSamples / nFrames;
-
+    %% Fixed 50 ms frame-centred snippets (even split across audio)
+    
+    % Even split in SAMPLES and centre locations (half-step offset)
+    samplesPerFrame = nSamples / nFrames;                          % samples per MR frame
+    centerSampleIdx = (0:nFrames-1) * samplesPerFrame + samplesPerFrame/2;
+    centerSampleIdx = round(centerSampleIdx) + 1;                  % 1-based indexing
+    centerSampleIdx = max(1, min(centerSampleIdx, nSamples));      % clamp to [1, nSamples]
+    
+    % Fixed 50 ms Hann window (force odd length so we have a true centre sample)
+    windowLen  = round(0.050 * sampleRate);
+    if mod(windowLen,2)==0, windowLen = windowLen + 1; end
+    halfWindow = (windowLen - 1)/2;
+    hannWindow = hann(windowLen, 'symmetric');
+    
     if VERBOSE
-        fprintf('samplesPerFrame           : %.2f samples/frame\n', samplesPerFrame);
-        fprintf('interval per frame        : %.3f s\n\n', audioDurationSec / nFrames);
+        fprintf('Window length              : %d samples (%.1f ms)\n', ...
+            windowLen, 1000*windowLen/sampleRate);
     end
-
     
-    % Centers in SAMPLES (half-step offset), then clamp to 1..nSamples
-    centerSample = (0:nFrames-1) * samplesPerFrame + samplesPerFrame/2;
-    centerSample = round(centerSample) + 1;                % 1-based indexing
-    centerSample = max(1, min(centerSample, nSamples));     % clamp to bounds
-    
-    
-    intervalMs  = 1000 * (audioDurationSec / nFrames);
-    windowMs    = min(60, max(40, intervalMs));
-    windowLen   = round(windowMs/1000 * sampleRate);
-    if mod(windowLen,2)==0, windowLen = windowLen + 1; end   % make odd length
-    halfWindow  = (windowLen - 1)/2;
-    if VERBOSE
-        fprintf('Chosen window             : %d samples (%.1f ms). Interval=%.1f ms\n', ...
-            windowLen, windowMs, intervalMs);
-    end
-
-    % Hann taper and zero-padding so edge frames are handled cleanly
-    hannWindow      = hann(windowLen, 'symmetric');
-    paddedAudio     = [zeros(halfWindow,1); audioForProcessing; zeros(halfWindow,1)];
+    % Zero-pad to handle edge frames 
+    paddedAudio     = [zeros(halfWindow,1); cleanAudio; zeros(halfWindow,1)];
     centerIdxPadded = centerSampleIdx + halfWindow;
-
-
-
-
-
-
-
-
-
-
-
-
     
-
+    % Extract one windowed snippet per MR frame (columns = frames)
+    frameSnippets = zeros(windowLen, nFrames, 'like', cleanAudio);
+    for k = 1:nFrames
+        iLo = centerIdxPadded(k) - halfWindow;
+        iHi = centerIdxPadded(k) + halfWindow;
+        frameSnippets(:,k) = paddedAudio(iLo:iHi) .* hannWindow;
+    end
     
+    fprintf('Extracted %d snippets of %d samples each (~%.1f ms)\n', ...
+        nFrames, windowLen, 1000*windowLen/sampleRate);
+
+
+
+    % ---- Return struct for feature extraction ---- 
+    processedAudio.sampleRate          = sampleRate;
+    processedAudio.windowLengthSamples = windowLen;
+    processedAudio.centerSampleIdx     = centerSampleIdx(:);   % nFrames×1
+    processedAudio.frameSnippets       = frameSnippets;        % winLen×nFrames
+    processedAudio.nFrames             = nFrames;
+    processedAudio.durationSec         = audioDurationSec;
+    processedAudio.windowMs      = 1000 * processedAudio.windowLengthSamples / processedAudio.sampleRate;
+    processedAudio.centerTimeSec = (processedAudio.centerSampleIdx - 1) / processedAudio.sampleRate;
+
+
+
 end
+
+
 
 
 
@@ -99,8 +106,8 @@ manifest = {
 };
 
 
-% Pick one
-% Find the num frames of that MR and then pass both in 
+
+
 
 
 %% Paths =====
@@ -129,7 +136,8 @@ for i = 1:manifestLength
 
     nFrames = size(mrAndVideoData(dataIdx).mr_warp2D, 2); % Number of MR / video frames 
 
-    processAudio(wavPath, nFrames, VERBOSE = true);
+    processAudioFile(wavPath, nFrames, VERBOSE = true, PLOTTING = true);
 
 end
+
 
