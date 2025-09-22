@@ -72,9 +72,6 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     AUDp = thisAudio;
 
 
-
-
-    
     % --- Compute weights on the paired blocks ---
     [lam1_mr, ~]  = block_scale_stats(MRp);
     [lam1_vid, ~] = block_scale_stats(VIDp);
@@ -100,8 +97,10 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     % Use weighted + paired blocks for PCA and reconstruction
     mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
 
+
     mixWarps_noAud = [thisMRWarpW; thisVidWarpW; zeros(size(thisAudioW))];
     
+
 
 
 

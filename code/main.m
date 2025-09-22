@@ -67,31 +67,22 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
     actorID    = mrAndVideoData(dataIdx).actor;   
     sentenceID = mrAndVideoData(dataIdx).sentence;
 
-    preProcessedAudioStruct = processAudio(wavPath, nFrames, VERBOSE = true);
+    preProcessedAudioStruct = processAudio(wavPath, nFrames, VERBOSE = false);
 
-    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = true);
+    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = false);
 
     if doH1
         fprintf("Starting H1\n");
     
-        % observedMode + shuffleTarget pairs, add more test conditions here
-        h1TestsParameters = {
-            "MR+VID", 1;
-            "MR",     1;
-            "VID",    2
-        };
+       
+
+        r = trimodalH1_v2(mrAndVideoData, audioFeatures, dataIdx, ...
+                       reconstructId=3, ...
+                       nBoots=nBoots,VERBOSE=true);
+
+        if ~isfile(h1CSV), generateEmptyCSV(r, h1CSV); end
+        if writeToCsv_h1 && isfile(h1CSV), appendToCSV(r, h1CSV); end
     
-        for k = 1:size(h1TestsParameters,1)
-            observedMode = h1TestsParameters{k,1};
-            shuffleTarget = h1TestsParameters{k,2};
-    
-            r = trimodalH1(mrAndVideoData, audioFeatures, dataIdx, ...
-                           reconstructId=3, shuffleTarget=shuffleTarget, ...
-                           observedMode=observedMode, nBoots=nBoots,VERBOSE=true);
-    
-            if ~isfile(h1CSV), generateEmptyCSV(r, h1CSV); end
-            if writeToCsv_h1 && isfile(h1CSV), appendToCSV(r, h1CSV); end
-        end
     end
 
     

@@ -11,27 +11,35 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
         data
         audioFeatures
         dataIdx 
-        opts.reconstructId = 3;     % MR = 1, VIDEO = 2, AUDIO = 3
-        opts.shuffleTarget = 1;     % same as reconstructId
+        opts.reconstructId = 3       % MR = 1, VIDEO = 2, AUDIO = 3
+        opts.shuffleTarget = 3       % H1 default: shuffle the target (Audio)
+        opts.shuffleObservedTogether (1,1) logical = false  % alt null: jointly permute MR+VID
         opts.nBoots = 1000
         opts.observedMode {mustBeMember(opts.observedMode,{'MR+VID','MR','VID'})} = 'MR+VID'
         opts.VERBOSE = false 
-        opts.genFigures = false;
+        opts.genFigures = false
     end
 
-    reconstructId = opts.reconstructId;
-    shuffleTarget  = opts.shuffleTarget;
-    nBoots      = opts.nBoots;
-    observedMode= opts.observedMode; % Which observed block(s) may inform the scores?
-    VERBOSE     = opts.VERBOSE;    
-    genfigures = opts.genFigures;
 
-    blockNames = {'MR','Video','Audio'};    % Used in verbose prints, might get rid 
+    reconstructId = opts.reconstructId;
+    shuffleTarget = opts.shuffleTarget;
+    nBoots        = opts.nBoots;
+    observedMode  = opts.observedMode;    % Which observed block(s) may inform the scores?
+    VERBOSE       = opts.VERBOSE;
+    genfigures    = opts.genFigures;
+    shuffleObservedTogether = opts.shuffleObservedTogether; % what is this?
     
+    blockNames = {'MR','Video','Audio'};
     
+    % Guard: for H1 (Audio target) with MR+VID observed, default to shuffling the target (Audio)
+    if reconstructId==3 && strcmp(observedMode,'MR+VID') && shuffleTarget~=3 && ~shuffleObservedTogether
+        warning('H1 guard: setting shuffleTarget=3 (Audio) so the null actually breaks the MR+VID → Audio pathway.');
+        shuffleTarget = 3;
+    end
     
-    % Reset random seed
+    % Reset random seed (consider moving upstream for batch runs)
     rng('default');
+
             
     
     %% PCA on hybrid facial video and vocal-tract MR images
@@ -45,6 +53,8 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
     fprintf('H1: dataIdx=%d | observed=%s → target=%s | nBoots=%d\n', dataIdx, observedMode, blockNames{reconstructId}, nBoots);
 
+    
+    
     if VERBOSE
         fprintf('MR:    %d features x %d frames\n', size(thisMRWarp,1), T);
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), T);
@@ -53,56 +63,35 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
 
 
 
-    %% === Trimodal block balancing (MFA-style) ===============================
-    % Diagnostics BEFORE weighting
-    [lam1_mr,  fro_mr]   = block_scale_stats(thisMRWarp);
-    [lam1_vid, fro_vid]  = block_scale_stats(thisVidWarp);
-    [lam1_aud, fro_aud]  = block_scale_stats(thisAudio);
-
-    if VERBOSE
-        fprintf('Before weighting:  PC1 λ  MR=%.4g | Video=%.4g | Audio=%.4g   | Fro MR=%.3g | Fro Video=%.3g | Fro Audio=%.3g\n', ...
-            lam1_mr, lam1_vid, lam1_aud, fro_mr, fro_vid, fro_aud);
-    end
-
+    %% === Chris-style normalisation (demean-only; no scaling/weights) =========
+    % Keep raw blocks; let doPCA perform row-wise mean centring across frames.
+    % No per-row STD scaling; no block weighting.
+    
     % --- NO TEMPORAL PAIRING TONIGHT ---
     % pair = @(X) [X(:,1:end-1); X(:,2:end)];
     % MRp  = pair(thisMRWarp);  VIDp = pair(thisVidWarp);  AUDp = pair(thisAudio);
     MRp  = thisMRWarp;
     VIDp = thisVidWarp;
     AUDp = thisAudio;
-
-
-
-
     
-    % --- Compute weights on the paired blocks ---
-    [lam1_mr, ~]  = block_scale_stats(MRp);
-    [lam1_vid, ~] = block_scale_stats(VIDp);
-    [lam1_aud, ~] = block_scale_stats(AUDp);
+    % Pass-through (no weighting)
+    thisMRWarpW  = MRp;
+    thisVidWarpW = VIDp;
+    thisAudioW   = AUDp;
     
-    w_mr  = 1/sqrt(lam1_mr);
-    w_vid = 1/sqrt(lam1_vid);
-    w_aud = 1/sqrt(lam1_aud);
+    % Optional diagnostics (uncomment if desired)
+    if VERBOSE
+        [lam1_mr_w,  fro_mr_w]  = block_scale_stats(thisMRWarpW);
+        [lam1_vid_w, fro_vid_w] = block_scale_stats(thisVidWarpW);
+        [lam1_aud_w, fro_aud_w] = block_scale_stats(thisAudioW);
+        fprintf('POST-preproc (no weighting): PC1λ MR=%.3g | Vid=%.3g | Aud=%.3g  | Fro MR=%.3g | Vid=%.3g | Aud=%.3g\n', ...
+            lam1_mr_w, lam1_vid_w, lam1_aud_w, fro_mr_w, fro_vid_w, fro_aud_w);
+    end
     
-    % --- Apply weights and proceed ---
-    thisMRWarpW  = w_mr  * MRp;
-    thisVidWarpW = w_vid * VIDp;
-    thisAudioW   = w_aud * AUDp;
-
-
-     % After computing thisMRWarpW, thisVidWarpW, thisAudioW:
-    [lam1_mr_w,  fro_mr_w]  = block_scale_stats(thisMRWarpW);
-    [lam1_vid_w, fro_vid_w] = block_scale_stats(thisVidWarpW);
-    [lam1_aud_w, fro_aud_w] = block_scale_stats(thisAudioW);
-    fprintf('POST-weighting: PC1λ MR=%.3g | Vid=%.3g | Aud=%.3g  | Fro MR=%.3g | Vid=%.3g | Aud=%.3g\n', ...
-        lam1_mr_w, lam1_vid_w, lam1_aud_w, fro_mr_w, fro_vid_w, fro_aud_w);
-
-    % Use weighted + paired blocks for PCA and reconstruction
-    mixWarps = [thisMRWarpW; thisVidWarpW; thisAudioW];
-
+    % Build the hybrid matrix (pixels/features x frames)
+    mixWarps       = [thisMRWarpW; thisVidWarpW; thisAudioW];
     mixWarps_noAud = [thisMRWarpW; thisVidWarpW; zeros(size(thisAudioW))];
     
-
 
 
     %% ============================================================================
@@ -152,11 +141,32 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
             % keep both as observed
     end
     
-    % Projection-based score inference
-    % Sanity: hidden block must be exactly zero after centring+masking
+
+
+    % Least-squares score inference using only the observed rows (fixes amplitude shrinkage)
     aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
     assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking.');
-    partial_loading  = partial_centered' * origPCA;
+    
+    m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
+    v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
+    
+    obs_rows = false(size(mixWarps,1),1);
+    switch observedMode
+        case 'MR'
+            obs_rows(m1:m2) = true;
+        case 'VID'
+            obs_rows(v1:v2) = true;
+        case 'MR+VID'
+            obs_rows(m1:m2) = true;  obs_rows(v1:v2) = true;
+    end
+    
+    X_obs = partial_centered(obs_rows, :);    % p_obs x T
+    P_obs = origPCA(obs_rows, :);             % p_obs x k
+    G     = (P_obs.' * P_obs);                % k x k
+    lambda = 1e-8;                            % tiny ridge for stability
+    scores = (G + lambda*eye(size(G))) \ (P_obs.' * X_obs);   % k x T
+    
+    partial_loading = scores.';               % T x k (matches previous downstream shape)
 
 
     
@@ -310,26 +320,34 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
     idx2 = elementBoundaries(reconstructId+1);
     
     for bootI = 1:nBoots
-        
-        %% SHUFFLE WARPS  --- Build shuffled dataset: permute only the selected block ---
-
-        switch shuffleTarget
-            case 1  % shuffle MR frames
-                shMR  = thisMRWarpW(:, permIndexes(bootI,:));
-                shVID = thisVidWarpW;
-                shAUD = thisAudioW;
-            case 2  % shuffle Video frames
-                shMR  = thisMRWarpW;
-                shVID = thisVidWarpW(:, permIndexes(bootI,:));
-                shAUD = thisAudioW;
-            case 3  % shuffle Audio frames
-                shMR  = thisMRWarpW;
-                shVID = thisVidWarpW;
-                shAUD = thisAudioW(:, permIndexes(bootI,:));
-            otherwise
-                error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
+        %% SHUFFLE WARPS  --- Build shuffled dataset
+        if shuffleObservedTogether && strcmp(observedMode,'MR+VID')
+            % Alt null: jointly permute the observed pair (MR+VID) with the SAME permutation; leave Audio intact
+            perm = permIndexes(bootI,:);
+            shMR  = thisMRWarpW(:, perm);
+            shVID = thisVidWarpW(:, perm);
+            shAUD = thisAudioW;
+        else
+            % Primary null: permute ONLY the selected target block (Audio for H1)
+            switch shuffleTarget
+                case 1  % shuffle MR frames
+                    shMR  = thisMRWarpW(:, permIndexes(bootI,:));
+                    shVID = thisVidWarpW;
+                    shAUD = thisAudioW;
+                case 2  % shuffle Video frames
+                    shMR  = thisMRWarpW;
+                    shVID = thisVidWarpW(:, permIndexes(bootI,:));
+                    shAUD = thisAudioW;
+                case 3  % shuffle Audio frames (H1 default)
+                    shMR  = thisMRWarpW;
+                    shVID = thisVidWarpW;
+                    shAUD = thisAudioW(:, permIndexes(bootI,:));
+                otherwise
+                    error('shuffleTarget must be 1 (MR), 2 (Video), or 3 (Audio).');
+            end
         end
         shuffWarps_i = [shMR; shVID; shAUD];
+
 
 
 
@@ -356,10 +374,30 @@ function results = trimodalH1(data, audioFeatures, dataIdx, opts)
                 
         end
         
-        % Sanity: hidden block must be exactly zero after centring+masking
+        % Least-squares score inference on shuffled data (same rationale)
         aud_mask = elementBoundaries(3)+1 : elementBoundaries(4);
         assert(norm(partial_centered(aud_mask,:), 'fro')==0, 'Hidden Audio rows are not zero after masking (shuffled).');
-        partial_loading  = partial_centered' * PCA_sh;
+        
+        m1 = elementBoundaries(1)+1; m2 = elementBoundaries(2); % MR rows
+        v1 = elementBoundaries(2)+1; v2 = elementBoundaries(3); % Video rows
+        
+        obs_rows = false(size(shuffWarps_i,1),1);
+        switch observedMode
+            case 'MR'
+                obs_rows(m1:m2) = true;
+            case 'VID'
+                obs_rows(v1:v2) = true;
+            case 'MR+VID'
+                obs_rows(m1:m2) = true;  obs_rows(v1:v2) = true;
+        end
+        
+        X_obs = partial_centered(obs_rows, :);    % p_obs x T
+        P_obs = PCA_sh(obs_rows, :);              % p_obs x k
+        G     = (P_obs.' * P_obs);                % k x k
+        lambda = 1e-8;
+        scores = (G + lambda*eye(size(G))) \ (P_obs.' * X_obs);   % k x T
+        
+        partial_loading = scores.';               % T x k
 
 
 
