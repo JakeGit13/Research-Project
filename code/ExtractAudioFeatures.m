@@ -1,19 +1,10 @@
 function audioBlock = extractAudioFeatures(processedAudio, opts)
-% EXTRACTAUDIOFEATURES  -- CPP-only (Cepstral Peak Prominence) per MR frame
-% Returns features-as-rows, time-as-columns: [1 x nFrames]
-% Inputs expected from processAudioFile.m:
-%   processedAudio.frameSnippets        [winLen x nFrames]
-%   processedAudio.sampleRate           scalar (Hz)
-%   processedAudio.windowLengthSamples  scalar (samples)
-%   processedAudio.nFrames              scalar
 
     arguments
-        processedAudio struct
-        opts.VERBOSE (1,1) logical = true
-        % retained but unused here:
-        opts.Method  (1,:) char    = 'NCF'
-        opts.Range   (1,2) double  = [50 300]
-        opts.UnvoicedValue (1,1) double = 0
+        processedAudio 
+        opts.VERBOSE  = true
+        
+
     end
 
     % --- pull from preprocessing struct ---
@@ -24,293 +15,225 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
     fprintf('[INFO] fs=%g Hz | window=%d samples (%.1f ms) | frames=%d\n', ...
             sampleRate, winLen, 1000*winLen/sampleRate, nFrames);
     
-    % ===== CPP per frame with de-loudness =====
-    ham  = hamming(winLen, 'periodic');
-    nfft = 2^nextpow2(winLen*2);
+
+
+    %% === Features 1 & 2: log-F0 and voicing probability ===
+    % Input: frameSnippets [winLen x nFrames], sampleRate
+    % Output rows (so far): [logF0 ; vuvProb]
     
-    q_axis_s = (0:nfft-1)'/sampleRate;
-    q_min = 0.002; q_max = 0.020;                % 2–20 ms (≈50–500 Hz)
-    q_mask = (q_axis_s >= q_min) & (q_axis_s <= q_max);
-    q_span = q_axis_s(q_mask);
+    % Parameters (local defaults; can be overridden by processedAudio.*)
+    minF0 = 50;            % Hz
+    maxF0 = 300;           % Hz
+    unvoicedValue = 0;     % value used for logF0 when unvoiced
+    vuvThresh = 0.40;      % NACF threshold for voicing (0..1)
     
-    feature_cpp_db = zeros(nFrames,1);
-    log_energy     = zeros(nFrames,1);
+    if isfield(processedAudio,'minF0'),         minF0 = processedAudio.minF0;         end
+    if isfield(processedAudio,'maxF0'),         maxF0 = processedAudio.maxF0;         end
+    if isfield(processedAudio,'unvoicedValue'), unvoicedValue = processedAudio.unvoicedValue; end
+    if isfield(processedAudio,'vuvThresh'),     vuvThresh = processedAudio.vuvThresh; end
     
-    for f = 1:nFrames
-        x = frameSnippets(:,f);
-        if ~iscolumn(x), x = x(:); end
+    % Derived settings
+    minLag = max(1, floor(sampleRate / maxF0));          % samples
+    maxLag = min(winLen-1, ceil(sampleRate / minF0));    % limit to window length
+    if maxLag <= minLag
+        warning('F0 lag range invalid for this window. Adjusting to [minLag=2, maxLag=%d].', max(minLag+1,2));
+        minLag = 2; maxLag = max(minLag+1, 3);
+    end
+    nfft = 2^nextpow2(2*winLen);                          % for FFT-based autocorrelation
     
-        % window + RMS normalise (removes loudness)
-        xw = x .* ham;
-        rms_x = sqrt(mean(xw.^2)) + eps;
-        xw = xw / rms_x;
+    if opts.VERBOSE
+        fprintf('[PARAM] F0 range=%d–%d Hz | unvoicedValue=%g | vuvThresh=%.2f | lags=%d–%d | nfft=%d\n', ...
+            minF0, maxF0, unvoicedValue, vuvThresh, minLag, maxLag, nfft);
+    end
+
+
+    % --- HF ratio helpers (single-sided spectrum indices) ---
+    half_n = floor(nfft/2) + 1;
+    freqs  = (0:half_n-1) * (sampleRate / nfft);
+    nyq    = sampleRate / 2;
     
-        % diagnostics energy (pre-normalisation energy would be different;
-        % we keep post-normalisation energy just to have a reference)
-        log_energy(f) = log(sum(xw.^2) + eps);
+    hfLoHz = 4000;                       % default lower bound of HF band (Hz)
+    if hfLoHz >= nyq
+        hfLoHz = max(0.5*nyq, nyq-1);    % keep inside Nyquist if fs is low
+    end
+    hf_mask = (freqs >= hfLoHz) & (freqs <= 0.98*nyq);
+    if ~any(hf_mask)
+        hf_mask = freqs >= 0.5*nyq;      % fallback: top half of band
+    end
+
+
+    %% --- High-band mel filterbank (for melPC1) ---
+    mel   = @(f) 2595*log10(1 + f/700);
+    invmel= @(m) 700*(10.^(m/2595) - 1);
     
-        % cepstrum of log-magnitude spectrum
-        X = fft(xw, nfft);
-        % additionally remove global spectral offset (DC in log-mag)
+    f_lo = max(4000, freqs(2));      % start ≥ 4 kHz, clamp to >0
+    f_hi = 0.98 * nyq;               % up to ~Nyquist
+    
+    if f_hi <= f_lo
+        % Fallback if sampling rate is too low: take top quarter band
+        f_lo = 0.75*nyq;
+        f_hi = 0.98*nyq;
+    end
+    
+    nMel = 20;                        % number of triangular mel bands
+    m_edges = linspace(mel(f_lo), mel(f_hi), nMel+2);
+    f_edges = invmel(m_edges);
+    
+    % Triangular filters over single-sided bin freqs
+    M = zeros(nMel, half_n);
+    for b = 1:nMel
+        fL = f_edges(b); fC = f_edges(b+1); fR = f_edges(b+2);
+        % left slope
+        L = (freqs >= fL) & (freqs <= fC);
+        % right slope
+        R = (freqs >= fC) & (freqs <= fR);
+        M(b,L) = (freqs(L) - fL) / max(fC - fL, eps);
+        M(b,R) = (fR - freqs(R)) / max(fR - fC, eps);
+    end
+    
+    if opts.VERBOSE
+        fprintf('[MEL] high band: %.0f–%.0f Hz | nBands=%d\n', f_lo, f_hi, nMel);
+    end
+
+
+
+    
+    % Preallocate
+    f0_hz   = zeros(1, nFrames);
+    vuvProb = zeros(1, nFrames);
+    cpp_db  = zeros(1, nFrames); 
+    hf_ratio = zeros(1, nFrames);
+    mel_logE = zeros(nMel, nFrames);   % per-frame high-band log-mel energies
+
+    
+    % Loop frames
+    for t = 1:nFrames
+        x = double(frameSnippets(:,t));
+        x = x - mean(x);                        % remove DC
+    
+        if ~any(x)                              % silence window
+            vuvProb(t) = 0; 
+            f0_hz(t)   = 0;
+            cpp_db(t)  = 0;
+            hf_ratio(t) = 0;
+            continue
+        end
+
+    
+        % Autocorrelation via Wiener–Khinchin
+        X  = fft(x, nfft);
+        r  = ifft(abs(X).^2, 'symmetric');      % autocorrelation
+        r0 = max(r(1), eps);
+        r  = r ./ r0;                           % normalized ACF
+
+
+        % --- HF energy ratio: sum(|X|) in high band / sum(|X|) overall (single-sided) ---
+        mag = abs(X(1:half_n));           % single-sided magnitude
+        E_all = sum(mag);
+        E_hi  = sum(mag(hf_mask));
+        hf_ratio(t) = E_hi / max(E_all, eps);
+
+        % --- High-band log-mel energies (single-sided power spectrum) ---
+        pow = (abs(X(1:half_n))).^2;
+        melE = M * pow(:);                 % [nMel x 1]
+        mel_logE(:,t) = log(melE + eps);   % natural log
+
+
+
+        % --- CPP: cepstral peak prominence over the pitch quefrency band ---
         log_mag = log(abs(X) + eps);
-        log_mag = log_mag - mean(log_mag);        % stronger de-loudness
-        cep = real(ifft(log_mag));
-    
-        % peak in pitch-relevant quefrency band
-        c_seg = cep(q_mask);
-        [peak_val, peak_idx] = max(c_seg);
-    
-        % linear baseline across same span
-        p = polyfit(q_span, c_seg, 1);
-        baseline_at_peak = polyval(p, q_span(peak_idx));
-    
-        % CPP in dB
-        feature_cpp_db(f) = (20/log(10)) * (peak_val - baseline_at_peak);
-    end
-    
-    % ===== Diagnostics before residualisation =====
-    m = mean(feature_cpp_db); s = std(feature_cpp_db);
-    fprintf('[CPP] Summary (pre-resid): mean=%.2f dB | std=%.2f | min=%.2f | max=%.2f\n', ...
-            m, s, min(feature_cpp_db), max(feature_cpp_db));
-    
-    r_before = NaN;
-    if std(feature_cpp_db)>0 && std(log_energy)>0
-        Rb = corrcoef(feature_cpp_db, log_energy);
-        r_before = Rb(1,2);
-        fprintf('[CPP] Corr(CPP, log-energy) BEFORE = %.3f (want small)\n', r_before);
-    else
-        fprintf('[CPP] Corr before skipped (constant vector)\n');
-    end
-    
-    % ===== Residualise CPP against log-energy (guarantee low |r|) =====
-    % y = a + b*E + e  -> take residual e
-    y = feature_cpp_db;
-    if std(log_energy)>0
-        E = (log_energy - mean(log_energy)) / std(log_energy);
-        X = [ones(nFrames,1) E];
-        beta = X \ y;
-        y_resid = y - X*beta;
-    
-        % replace with residualised CPP
-        feature_cpp_db = y_resid;
-    
-        if std(feature_cpp_db)>0
-            Ra = corrcoef(feature_cpp_db, log_energy);
-            fprintf('[CPP] Corr(CPP, log-energy) AFTER  = %.3f\n', Ra(1,2));
-        end
-    end
-    
-
-
-    % ===== H1–H2 per frame (glottal spectral slope) =====
-    [winLen, nFrames] = size(frameSnippets);
-    ham_h12  = hamming(winLen, 'periodic');
-    nfft_h12 = 2^nextpow2(winLen*2);
-    bin_width_hz = sampleRate / nfft_h12;
-    max_search_bins = 2;                         % ±2-bin local search around harmonic bins
-    
-    freq_axis = (0:nfft_h12-1)' * bin_width_hz;
-    half_n = floor(nfft_h12/2)+1;                % use 0..Nyquist
-    
-    % for F0 via cepstral peak (re-use band like CPP)
-    q_axis_s = (0:nfft_h12-1)'/sampleRate;
-    q_mask = (q_axis_s >= 0.002) & (q_axis_s <= 0.020);  % 2–20 ms → 50–500 Hz
-    q_span = q_axis_s(q_mask);
-    
-    % H1–H2 plus F0/VUV prealloc
-    feature_h1h2_db = nan(nFrames,1);
-    f0_vec = nan(nFrames,1);   % Hz; NaN = unvoiced/invalid
-    vuv    = zeros(nFrames,1); % 1=voiced, 0=unvoiced
-
-    log_energy_h12  = zeros(nFrames,1);
-    
-    for f = 1:nFrames
-        x = frameSnippets(:,f);
-        if ~iscolumn(x), x = x(:); end
-    
-        % window + mild RMS normalisation (keeps ratios stable)
-        xw = x .* ham_h12;
-        rms_x = sqrt(mean(xw.^2)) + eps;
-        xw = xw / rms_x;
-    
-        % diagnostics energy
-        log_energy_h12(f) = log(sum(xw.^2) + eps);
-    
-        % spectrum (magnitude)
-        X = fft(xw, nfft_h12);
-        mag = abs(X(1:half_n));                   % 0..Nyquist
-    
-        % --- F0 estimate via cepstral peak (same as CPP method) ---
-        log_mag_full = log(abs(fft(xw, nfft_h12)) + eps);
-        log_mag_full = log_mag_full - mean(log_mag_full);
-        cep = real(ifft(log_mag_full));
-        c_seg = cep(q_mask);
-        [~, peak_idx] = max(c_seg);
-        q0 = q_span(peak_idx);                      % sec
-        f0_hz = 1 / max(q0, eps);
+        log_mag = log_mag - mean(log_mag);              % remove DC in log-spectrum
+        cep = real(ifft(log_mag));                      % real cepstrum
         
-        % Default: unvoiced/invalid
-        f0_vec(f) = NaN; 
-        vuv(f)    = 0;
+        qIdx = minLag:maxLag;                           % pitch-relevant quefrency range
+        [cpeak, cposRel] = max(cep(qIdx));              % peak height in that band
+        cpos = qIdx(1) + cposRel - 1;                   % absolute index of the peak
         
-        % Validity check for F0 (keep range consistent with your code)
-        if (f0_hz >= 50 && f0_hz <= 500)
-            % Mark voiced now (even if H2 later skips)
-            f0_vec(f) = f0_hz;
-            vuv(f)    = 1;
+        % Simple baseline: linear trend over the band, evaluated at peak location
+        p_lin = polyfit(qIdx, double(cep(qIdx)).', 1);  % degree-1 fit
+        cbase = polyval(p_lin, cpos);
+        
+        % Convert natural-log difference to dB-like scale (20/log(10)≈8.6859)
+        cpp_db(t) = 8.685889638 * (cpeak - cbase);
+
+    
+        % Search peak in allowed lag range
+        rSeg = r(minLag:maxLag);
+        [peak, idx] = max(rSeg);
+        lag = minLag + idx - 1;
+        candF0 = sampleRate / lag;
+    
+        % Save voicing probability (peak NACF in 0..1)
+        vuvProb(t) = max(min(peak, 1), 0);
+    
+        % Accept candidate only if in-range; else leave as 0 (unvoiced)
+        if candF0 >= minF0 && candF0 <= maxF0
+            f0_hz(t) = candF0;
         else
-            continue;                               % leave H1–H2 as NaN
+            vuvProb(t) = 0;  % unreliable peak → treat as unvoiced
         end
-
-
-
-    
-        % --- Harmonic bins and local peak pick ---
-        % H1 around f0
-        bin1 = round(f0_hz / bin_width_hz) + 1;
-        b1a = max(2, bin1 - max_search_bins);      % avoid DC bin
-        b1b = min(half_n, bin1 + max_search_bins);
-        [amp1, rel1] = max(mag(b1a:b1b));
-        bin1_peak = b1a + rel1 - 1; %#ok<NASGU>
-    
-        % H2 around 2*f0
-        f2_hz = 2 * f0_hz;
-        if f2_hz >= (sampleRate/2) - 10           % too close to Nyquist → unreliable
-            continue;
-        end
-        bin2 = round(f2_hz / bin_width_hz) + 1;
-        b2a = max(2, bin2 - max_search_bins);
-        b2b = min(half_n, bin2 + max_search_bins);
-        [amp2, rel2] = max(mag(b2a:b2b));
-        bin2_peak = b2a + rel2 - 1; %#ok<NASGU>
-    
-        % H1–H2 in dB
-        h1_db = 20*log10(amp1 + eps);
-        h2_db = 20*log10(amp2 + eps);
-        feature_h1h2_db(f) = h1_db - h2_db;
     end
     
-    % ===== Diagnostics (pre-residualisation) =====
-    valid = ~isnan(feature_h1h2_db);
-    if any(valid)
-        m = mean(feature_h1h2_db(valid)); s = std(feature_h1h2_db(valid));
-        fprintf('[H1H2] Summary (pre-resid): mean=%.2f dB | std=%.2f | min=%.2f | max=%.2f\n', ...
-                m, s, min(feature_h1h2_db(valid)), max(feature_h1h2_db(valid)));
-        if std(feature_h1h2_db(valid))>0 && std(log_energy_h12(valid))>0
-            Rb = corrcoef(feature_h1h2_db(valid), log_energy_h12(valid));
-            fprintf('[H1H2] Corr(H1H2, log-energy) BEFORE = %.3f (want small)\n', Rb(1,2));
+    % Map to final features
+    vuvFlag = double(vuvProb >= vuvThresh);     % optional binary flag (not returned)
+    logF0   = unvoicedValue * ones(1, nFrames);
+    voiced  = (f0_hz > 0) & (vuvFlag == 1);
+    logF0(voiced) = log(f0_hz(voiced));         % unvoiced stays at UnvoicedValue (default 0)
+    
+
+    % === High-band mel PC1 across time (frames) ===
+    Y = mel_logE.';                          % [frames x nMel]
+    Yc = bsxfun(@minus, Y, mean(Y,1));       % center variables (bands)
+    [U,S,~] = svd(Yc, 'econ');               % PCA via SVD
+    melPC1 = (U(:,1) * S(1,1)).';            % [1 x nFrames] first PC scores
+    
+    if opts.VERBOSE
+        svals = diag(S);
+        expl1 = (svals(1)^2) / max(sum(svals.^2), eps);
+        fprintf('[MEL PC1] variance explained = %.1f%%\n', 100*expl1);
+    end
+
+
+
+    
+    % Verbose summary (F0)
+    if opts.VERBOSE
+        nVoiced = nnz(voiced);
+        fprintf('[F0] Range=%.0f–%.0f Hz | lag=%d–%d | voiced %d/%d (%.1f%%)\n', ...
+            minF0, maxF0, minLag, maxLag, nVoiced, nFrames, 100*nVoiced/nFrames);
+        if nVoiced > 0
+            fprintf('[F0] Median F0=%.1f Hz | Mean NACF(voiced)=%.2f\n', ...
+                median(f0_hz(voiced)), mean(vuvProb(voiced)));
+        end
+    end
+
+    % Verbose summary (CPP)
+    if opts.VERBOSE
+        validCPP = isfinite(cpp_db);
+        if any(validCPP)
+            fprintf('[CPP] Median=%.2f dB | Mean=%.2f dB\n', ...
+                median(cpp_db(validCPP)), mean(cpp_db(validCPP)));
         else
-            fprintf('[H1H2] Corr before skipped (constant vector)\n');
-        end
-    else
-        fprintf('[H1H2] All frames invalid (likely unvoiced/F0 out of range)\n');
-    end
-    
-    % ===== Residualise vs log-energy (like CPP) =====
-    if any(valid) && std(log_energy_h12(valid))>0
-        E = (log_energy_h12(valid) - mean(log_energy_h12(valid))) / std(log_energy_h12(valid));
-        Xd = [ones(nnz(valid),1) E];
-        beta = Xd \ feature_h1h2_db(valid);
-        resid = feature_h1h2_db(valid) - Xd*beta;
-        feature_h1h2_db(valid) = resid;
-    
-        if std(feature_h1h2_db(valid))>0
-            Ra = corrcoef(feature_h1h2_db(valid), log_energy_h12(valid));
-            fprintf('[H1H2] Corr(H1H2, log-energy) AFTER  = %.3f\n', Ra(1,2));
-        end
-    end
-    
-    % Fill NaNs (unvoiced) with 0 to keep dimensions; PCA will centre later
-    feature_h1h2_db(~valid) = 0;
-
-    % ===== Export log-F0 and V/UV =====
-    logF0 = zeros(nFrames,1);                         % unvoiced/invalid -> 0
-    voiced = (vuv==1) & isfinite(f0_vec) & (f0_vec>0);
-    logF0(voiced) = log(f0_vec(voiced));
-    % vuv is already 0/1
-
-
-    %% ===== High-Frequency Spectral Centroid (HF-Centroid) =====
-    [winLen, nFrames] = size(frameSnippets);
-    ham_hf  = hamming(winLen, 'periodic');
-    nfft_hf = 2^nextpow2(winLen*2);
-    nyq = sampleRate/2;
-    freq_axis = (0:nfft_hf-1)' * (sampleRate/nfft_hf);
-    half_n = floor(nfft_hf/2)+1;
-    
-    % HF band: default 3 kHz to ~Nyquist; adapt if fs is low
-    f_lo = 3000;
-    if nyq <= 3200
-        f_lo = 0.5*nyq;              % keep "high" relative to Nyquist if fs is low
-    end
-    f_hi = 0.95*nyq;                 % avoid edge bins
-    hf_mask = (freq_axis(1:half_n) >= f_lo) & (freq_axis(1:half_n) <= f_hi);
-    
-    feature_hfcentroid_hz = zeros(nFrames,1);
-    log_energy_hf         = zeros(nFrames,1);
-    
-    for f = 1:nFrames
-        x = frameSnippets(:,f); if ~iscolumn(x), x = x(:); end
-        xw = x .* ham_hf;
-    
-        % RMS normalise (de-loudness)
-        rms_x = sqrt(mean(xw.^2)) + eps;
-        xw = xw / rms_x;
-    
-        % diagnostics energy (post-normalisation)
-        log_energy_hf(f) = log(sum(xw.^2) + eps);
-    
-        % magnitude spectrum
-        X = fft(xw, nfft_hf);
-        mag = abs(X(1:half_n));
-    
-        % high-frequency centroid
-        mag_hf = mag(hf_mask);
-        freq_hf = freq_axis(hf_mask);
-        s = sum(mag_hf) + eps;
-        c_hz = sum(freq_hf .* mag_hf) / s;     % Hz
-        feature_hfcentroid_hz(f) = c_hz;
-    end
-    
-    % ===== Diagnostics (pre-residualisation) =====
-    m = mean(feature_hfcentroid_hz); s = std(feature_hfcentroid_hz);
-    fprintf('[HFcent] Band=%.0f–%.0f Hz | mean=%.0f Hz | std=%.0f | min=%.0f | max=%.0f\n', ...
-            f_lo, f_hi, m, s, min(feature_hfcentroid_hz), max(feature_hfcentroid_hz));
-    
-    if s>0 && std(log_energy_hf)>0
-        Rb = corrcoef(feature_hfcentroid_hz, log_energy_hf);
-        fprintf('[HFcent] Corr(centroid, log-energy) BEFORE = %.3f (want small)\n', Rb(1,2));
-    else
-        fprintf('[HFcent] Corr before skipped (constant vector)\n');
-    end
-    
-    % ===== Residualise vs log-energy =====
-    if std(log_energy_hf)>0
-        E = (log_energy_hf - mean(log_energy_hf)) / std(log_energy_hf);
-        Xd = [ones(nFrames,1) E];
-        beta = Xd \ feature_hfcentroid_hz;
-        feature_hfcentroid_hz = feature_hfcentroid_hz - Xd*beta;
-    
-        if std(feature_hfcentroid_hz)>0
-            Ra = corrcoef(feature_hfcentroid_hz, log_energy_hf);
-            fprintf('[HFcent] Corr(centroid, log-energy) AFTER  = %.3f\n', Ra(1,2));
+            fprintf('[CPP] No valid values.\n');
         end
     end
 
+    if opts.VERBOSE
+        fprintf('[HF ratio] band = %.0f–%.0f Hz | median=%.3f | mean=%.3f\n', ...
+            freqs(find(hf_mask,1,'first')), freqs(find(hf_mask,1,'last')), ...
+            median(hf_ratio), mean(hf_ratio));
+    end
 
-    % Return features x time (now includes logF0 and V/UV)
-    audioBlock = [
-        logF0(:).';
-        vuv(:).';
-        feature_cpp_db(:).';
-        feature_h1h2_db(:).';
-        feature_hfcentroid_hz(:).'
-    ];
-    audioBlock(isnan(audioBlock)) = 0;
+
+
+    %% Assemble features into output block (features x frames)
+    audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];
     
-    fprintf('[F0/VUV] Voiced frames: %d / %d (%.1f%%)\n', nnz(vuv), nFrames, 100*nnz(vuv)/nFrames);
-    
+    if opts.VERBOSE
+        fprintf('[OUT] features x frames = %d x %d (added melPC1)\n', size(audioBlock,1), size(audioBlock,2));
+    end
 
 
+   
 
 end

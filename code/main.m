@@ -69,7 +69,7 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
 
     preProcessedAudioStruct = processAudio(wavPath, nFrames, VERBOSE = false);
 
-    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = false);
+    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = true);
 
     if doH1
         fprintf("Starting H1\n");
