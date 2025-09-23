@@ -45,10 +45,35 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
         fprintf('Video: %d features x %d frames\n', size(thisVidWarp,1), vidFrameCount);
         fprintf('Audio: %d features x %d frames\n\n', size(thisAudio,1),   audioFrameCount);
     end
+
+    %% NORMALISATION
+    % === (Optional) within-audio equalisation across frames ===
+    A = thisAudio;                                    % [features x T], double
+    A = bsxfun(@minus, A, mean(A,2));
+    A = bsxfun(@rdivide, A, std(A,0,2) + eps);        % z-score per audio row
+    thisAudio = A;
     
+    % === Single scalar gain to set audio block energy share ===
+    MRm  = thisMRWarp - mean(thisMRWarp, 2);
+    VIDm = thisVidWarp - mean(thisVidWarp, 2);
+    AUDm = thisAudio   - mean(thisAudio,   2);
+    
+    E_MR  = norm(MRm,  'fro');
+    E_VID = norm(VIDm, 'fro');
+    E_AUD = norm(AUDm, 'fro');
+    
+    targetShare  = 0.10;                               % try 0.05, 0.10, 0.20
+    targetEnergy = targetShare * 0.5 * (E_MR + E_VID);
+    alpha = targetEnergy / max(E_AUD, eps);
+    thisAudio = alpha * thisAudio;
+    
+    if VERBOSE
+        fprintf('[NORM] audio z-score per feature: ON\n');
+        fprintf('[NORM] targetShare=%.2f | E_MR=%.3e E_VID=%.3e E_AUD=%.3e | alpha=%.3e\n', ...
+                targetShare, E_MR, E_VID, E_AUD, alpha);
+    end
 
-
-    % Concatentate the MR and video data
+    %% CONCATENATE MR, VIDEO AND NORMALISED AUDIO
     mixWarps = [thisMRWarp; thisVidWarp; thisAudio];
     
     % Perform a PCA on the hybrid data
@@ -64,6 +89,18 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
     
     elementBoundaries = [0, nMR, nMR + nVID, nMR + nVID + nAUD]; % Element boundaries based on the rows
     
+    % --- Audio share in the PCs (unshuffled) ---
+    nMR  = size(thisMRWarp,1);
+    nVID = size(thisVidWarp,1);
+    nAUD = size(thisAudio,1);
+    b = [0, nMR, nMR+nVID, nMR+nVID+nAUD];
+    audRows = (b(3)+1):b(4);
+    
+    pcAudioWeight = sum(origPCA(audRows,:).^2, 1);   % fraction per PC in audio rows
+    fprintf('[PC|Audio] median=%.3e  max=%.3e\n', median(pcAudioWeight), max(pcAudioWeight));
+
+
+
     if VERBOSE
         fprintf('Element boundaries (row indices): %d %d %d %d\n', elementBoundaries);
         fprintf('MR rows:    1–%d\n', nMR);
@@ -81,6 +118,20 @@ end
     % Store the loadings for further processing
     results.nonShuffledLoadings = origloadings;
     results.nonShuffledReconLoadings = partial_loading;
+
+    % --- Reconstruct data and read out Audio rows (unshuffled) ---
+    recon_full  = origPCA * (partial_loading') + origMorphMean;   % rows x T
+    recon_audio = recon_full(audRows,:);                           % Audio-only
+    orig_audio  = mixWarps(audRows,:);
+    
+    % centre per feature (rows) before comparison
+    ra = recon_audio - mean(recon_audio, 2);
+    oa = orig_audio  - mean(orig_audio,  2);
+    
+    R_audio_true   = corr(oa(:), ra(:), 'rows','complete');
+    SSE_audio_true = sum((oa(:) - ra(:)).^2);
+    fprintf('[Audio|data] Unshuffled: R=%.3f  SSE=%.3e\n', R_audio_true, SSE_audio_true);
+
     
     %% Display ************************************************************************************************************************
     
@@ -99,6 +150,11 @@ end
 
     %% Do the shuffled reconstruction *************************************************************************************************
     
+
+    R_audio_shuff   = NaN(1, nBoots);
+    SSE_audio_shuff = NaN(1, nBoots);
+
+
     
     T = size(mixWarps, 2);
 
@@ -151,11 +207,34 @@ end
             
             allShuffledOrigLoad{bootI} = loadings;
             allShuffledReconLoad{bootI} = partial_loading;
+
+
+            % --- Reconstruct shuffled data and read out Audio rows ---
+            recon_full  = PCA * (partial_loading') + MorphMean;
+            recon_audio = recon_full(audRows,:);
+            orig_audio  = shuffWarps(audRows,:);    % compare within the shuffled pairing
+            
+            ra = recon_audio - mean(recon_audio, 2);
+            oa = orig_audio  - mean(orig_audio,  2);
+            
+            R_audio_shuff(bootI)   = corr(oa(:), ra(:), 'rows','complete');
+            SSE_audio_shuff(bootI) = sum((oa(:) - ra(:)).^2);
+
+
+
+
         end
     end
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
     toc
+
+    muR = mean(R_audio_shuff); sdR = std(R_audio_shuff);
+    p_R_audio = (1 + sum(R_audio_shuff >= R_audio_true)) / (nBoots + 1);
+    fprintf('[Audio|data] Null: R mean=%.3f±%.3f | p=%.4g (one-sided)\n', muR, sdR, p_R_audio);
+
+
+
     
     % Statistics ************************************************************************************************************************
     

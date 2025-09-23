@@ -3,9 +3,11 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
     arguments
         processedAudio 
         opts.VERBOSE  = true
-        
-
+        opts.useNoiseAudio = true
     end
+
+    VERBOSE = opts.VERBOSE;
+    useNoiseAudio = opts.useNoiseAudio;
 
     % --- pull from preprocessing struct ---
     frameSnippets = processedAudio.frameSnippets;   % [winLen x nFrames]
@@ -226,14 +228,44 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
 
 
+    %% NORMALISATION
+    
+
+
+
+
     %% Assemble features into output block (features x frames)
     audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];
     
-    if opts.VERBOSE
-        fprintf('[OUT] features x frames = %d x %d (added melPC1)\n', size(audioBlock,1), size(audioBlock,2));
+
+
+
+    %% Optional negative control: return i.i.d. noise instead of real features
+    % useNoiseAudio = isfield(processedAudio,'useNoiseAudio') && logical(processedAudio.useNoiseAudio);
+    if useNoiseAudio
+        rng(12345);  % reproducible control
+        audioBlock = randn(size(audioBlock), 'double');   % same dims: 5 x nFrames
     end
+    
+    if opts.VERBOSE
+        tag = ternary(useNoiseAudio, 'NOISE', 'REAL');
+        fprintf('[OUT %s] features x frames = %d x %d\n', tag, size(audioBlock,1), size(audioBlock,2));
+    end
+    
+
+
 
 
    
 
+end
+
+% tiny helper (local ternary) — keeps code minimal without extra dependencies
+function y = ternary(cond, a, b)
+    
+    if cond
+        y=a; 
+    else
+        y=b; 
+    end
 end
