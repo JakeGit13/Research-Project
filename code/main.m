@@ -20,6 +20,7 @@ h2CSV = fullfile(resultsRoot, 'h2_results.csv');
 
 %% Controls ====
 nBoots = 100;    % Universal across all tests (1000 as default)
+targetAudioShare = 0.15; % Call on all tests % subject to change
 
 generateCsv = true;
 
@@ -75,40 +76,89 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
         fprintf("Starting H1\n");
     
        
-
-        r = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+        rH1 = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
                        reconstructId=3, ...     % 3 = Audio
                        nBoots=nBoots, ...
                        VERBOSE=true, ...
                        ifNormalise=true, ...
-                       targetAudioShare= 0.15, ...      % subject to change
+                       targetAudioShare= targetAudioShare, ...      
                        includeAudio= true);
 
-        if ~isfile(h1CSV), generateEmptyCSV(r, h1CSV); end
-        if writeToCsv_h1 && isfile(h1CSV), appendToCSV(r, h1CSV); end
+        if ~isfile(h1CSV), generateEmptyCSV(rH1, h1CSV); end
+        if writeToCsv_h1 && isfile(h1CSV), appendToCSV(rH1, h1CSV); end
     
     end
 
-    
+    fprintf("H1 Done\n");
    
     if doH2
         fprintf("Starting H2\n");
     
-        r2_mr = trimodalH2(mrAndVideoData, audioFeatures, dataIdx, ...
-                           reconstructId=1, shuffleTarget=3, nBoots=nBoots);
-        
-        if ~isfile(h2CSV), generateEmptyCSV(r2_mr, h2CSV); end % Only generate if no CSV file is there
-        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(r2_mr,h2CSV); end   % Append these results for this sentence to the CSV 
-    
-        r2_vid = trimodalH2(mrAndVideoData, audioFeatures, dataIdx, ...
-                            reconstructId=2, shuffleTarget=3, nBoots=nBoots);
 
-        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(r2_vid,h2CSV); end   % Append these results for this sentence to the CSV 
+        %% BIMODAL BASELINE TESTS (NO AUDIO)
+        rH2_bimodalMr = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+               reconstructId=1, ...     % 1 = MR
+               nBoots=nBoots, ...
+               VERBOSE=true, ...
+               ifNormalise=true, ...
+               targetAudioShare= targetAudioShare, ...      
+               includeAudio= false);    % without audio
         
+        
+        if ~isfile(h2CSV), generateEmptyCSV(rH2_bimodalMr, h2CSV); end % Only generate if no CSV file is there
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(rH2_bimodalMr,h2CSV); end   % Append these results for this sentence to the CSV 
+
+
+        rH2_bimodalVid = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+               reconstructId=2, ...     % 1 = VID
+               nBoots=nBoots, ...
+               VERBOSE=true, ...
+               ifNormalise=true, ...
+               targetAudioShare= targetAudioShare, ...      
+               includeAudio= false);    % without audio
+        
+        
+        if ~isfile(h2CSV), generateEmptyCSV(rH2_bimodalVid, h2CSV); end % Only generate if no CSV file is there
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(rH2_bimodalVid,h2CSV); end   % Append these results for this sentence to the CSV 
+
+
+
+        %% TRIMODAL TESTS (WITH AUDIO)
+        rH2_triimodalMr = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+               reconstructId=1, ...     % 1 = MR
+               nBoots=nBoots, ...
+               VERBOSE=true, ...
+               ifNormalise=true, ...
+               targetAudioShare= targetAudioShare, ...      
+               includeAudio= true);     % with audio
+        
+        if ~isfile(h2CSV), generateEmptyCSV(rH2_triimodalMr, h2CSV); end % Only generate if no CSV file is there
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(rH2_triimodalMr,h2CSV); end   % Append these results for this sentence to the CSV 
+
+
+        rH2_trimodalVid = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+               reconstructId=2, ...     % 1 = VID
+               nBoots=nBoots, ...
+               VERBOSE=true, ...
+               ifNormalise=true, ...
+               targetAudioShare= targetAudioShare, ...      
+               includeAudio= true);  % with audio
+        
+        if ~isfile(h2CSV), generateEmptyCSV(rH2_trimodalVid, h2CSV); end % Only generate if no CSV file is there
+        if writeToCsv_h2 && isfile(h2CSV); appendToCSV(rH2_trimodalVid,h2CSV); end   % Append these results for this sentence to the CSV 
+
+
+
+        %% Original bimodal shuffling PCA to compare to bimodal baseline
+
+
+
+
+
     end
 
 
-    fprintf("Done\n");
+    fprintf("H2 Done\n");
 
 end
 
