@@ -13,21 +13,21 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
         opts.nBoots (1,1) double = 1000
         opts.VERBOSE (1,1) logical = false 
         opts.genFigures (1,1) logical = false
-        opts.normalise (1,1) logical = false
+        opts.ifNormalise (1,1) logical = false
 
         %% >>> NEW: diagnostics controls (no normalization applied) <<< NOT SURE IF THESE ARE NEEDED TBH 
         opts.targetAudioShare (1,1) double = 0.15   % e.g., 0.10–0.20 is a good range
-        opts.applyBlockWeights (1,1) logical = false  % keep FALSE for diagnostics only
+
     end
 
     reconstructId = opts.reconstructId;
     nBoots      = opts.nBoots;
     VERBOSE     = opts.VERBOSE;    
     genfigures  = opts.genFigures;
-    normalise   = opts.normalise;
+    normalise   = opts.ifNormalise;
 
     targetAudioShare = opts.targetAudioShare;
-    applyBlockWeights = opts.applyBlockWeights;
+    
 
     % Reset random seed
     rng('default');
@@ -126,12 +126,125 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
         'predictedShareAfterWeight', [shareMR_pred, shareVID_pred, shareAUD_pred], ...
         'T_used', T );
 
-    %% (Optional) apply block weights now — keep OFF for diagnostics-only runs
-    if opts.applyBlockWeights
+
+
+    %% Z-SCORING
+    %% WITHIN-BLOCK NORMALIZATION (per-feature z-score across time)
+    % =========================
+    if normalise
+        if VERBOSE, fprintf('Applying within-block per-feature z-scoring...\n'); end
+
+        % Compute per-feature mean/std across time (dimension 2)
+        % MR
+        mr_mu  = mean(thisMRWarp,  2, 'omitnan');
+        mr_sd  = std( thisMRWarp,  0, 2, 'omitnan');    % unbiased by default
+        mr_sd( mr_sd < 1e-12 ) = 1e-12;                 % guard against zero-variance
+        thisMRWarp  = (thisMRWarp  - mr_mu) ./ mr_sd;
+
+        % Video
+        vid_mu = mean(thisVidWarp, 2, 'omitnan');
+        vid_sd = std( thisVidWarp, 0, 2, 'omitnan');
+        vid_sd( vid_sd < 1e-12 ) = 1e-12;
+        thisVidWarp = (thisVidWarp - vid_mu) ./ vid_sd;
+
+        % Audio
+        aud_mu = mean(thisAudio,   2, 'omitnan');
+        aud_sd = std( thisAudio,   0, 2, 'omitnan');
+        aud_sd( aud_sd < 1e-12 ) = 1e-12;
+        thisAudio   = (thisAudio   - aud_mu) ./ aud_sd;
+
+        % Report post-normalization block variances/shares (diagnostic)
+        mrVarVec_z  = var(thisMRWarp,  0, 2);
+        vidVarVec_z = var(thisVidWarp, 0, 2);
+        audVarVec_z = var(thisAudio,   0, 2);
+
+        vMR_z  = sum(mrVarVec_z);
+        vVID_z = sum(vidVarVec_z);
+        vAUD_z = sum(audVarVec_z);
+        vTot_z = vMR_z + vVID_z + vAUD_z;
+
+        shareMR_z  = vMR_z  / vTot_z;
+        shareVID_z = vVID_z / vTot_z;
+        shareAUD_z = vAUD_z / vTot_z;
+
+        if VERBOSE
+            fprintf('--- Block variance AFTER within-block z-scoring ---\n');
+            fprintf('SumVar  MR_z:  %.3e  (share = %.2f%%)\n', vMR_z,  100*shareMR_z);
+            fprintf('SumVar  VID_z: %.3e  (share = %.2f%%)\n', vVID_z, 100*shareVID_z);
+            fprintf('SumVar  AUD_z: %.3e  (share = %.2f%%)\n\n', vAUD_z, 100*shareAUD_z);
+        end
+
+        % Save normalization params (useful if you later want to back-transform)
+        results.normParams = struct( ...
+            'mr_mu', mr_mu, 'mr_sd', mr_sd, ...
+            'vid_mu', vid_mu, 'vid_sd', vid_sd, ...
+            'aud_mu', aud_mu, 'aud_sd', aud_sd );
+    else
+        % If not normalising, clear to avoid confusion downstream
+        results.normParams = [];
+        vMR_z  = vMR;   vVID_z = vVID;   vAUD_z = vAUD;   % carry forward raw sums
+        shareMR_z  = shareMR; shareVID_z = shareVID; shareAUD_z = shareAUD;
+    end
+
+
+
+    %% BLOCK WEIGHTING
+    %% === Block weighting AFTER z-scoring (or raw if normalise=false) ===
+    % Choose target shares: audio ~10–20% is a good starting window
+    sAUD = max(min(opts.targetAudioShare, 0.99), 0.01);  % e.g., 0.15
+    sRem = 1 - sAUD;
+    sMR  = 0.5 * sRem;
+    sVID = 0.5 * sRem;
+
+    % Use the observed (post z-score) block sums you already computed:
+    % vMR_z, vVID_z, vAUD_z  (if not z-scored, these are the raw sums vMR,vVID,vAUD)
+    epsVar = 1e-12;
+    wMR  = sqrt( sMR  / max(vMR_z,  epsVar) );
+    wVID = sqrt( sVID / max(vVID_z, epsVar) );
+    wAUD = sqrt( sAUD / max(vAUD_z, epsVar) );
+
+    % Optional: print predicted shares (pre-centering) for sanity
+    if VERBOSE
+        vMR_w  = (wMR^2)  * vMR_z;
+        vVID_w = (wVID^2) * vVID_z;
+        vAUD_w = (wAUD^2) * vAUD_z;
+        vTot_w = vMR_w + vVID_w + vAUD_w;
+        fprintf('Predicted shares after weighting: MR=%.1f%%, VID=%.1f%%, AUD=%.1f%%\n', ...
+            100*vMR_w/vTot_w, 100*vVID_w/vTot_w, 100*vAUD_w/vTot_w);
+    end
+
+    %% Apply weights 
+    if opts.ifNormalise
         thisMRWarp  = thisMRWarp  * wMR;
         thisVidWarp = thisVidWarp * wVID;
         thisAudio   = thisAudio   * wAUD;
+    
+
+        %% --- Diagnostics: actual block variances AFTER weighting (pre-PCA) ---
+        mrVarVec_w  = var(thisMRWarp,  0, 2);
+        vidVarVec_w = var(thisVidWarp, 0, 2);
+        audVarVec_w = var(thisAudio,   0, 2);
+    
+        vMR_w  = sum(mrVarVec_w);
+        vVID_w = sum(vidVarVec_w);
+        vAUD_w = sum(audVarVec_w);
+        vTot_w = vMR_w + vVID_w + vAUD_w;
+    
+        shareMR_w  = vMR_w  / vTot_w;
+        shareVID_w = vVID_w / vTot_w;
+        shareAUD_w = vAUD_w / vTot_w;
+    
+        if VERBOSE
+            fprintf('--- Block variance AFTER block weighting ---\n');
+            fprintf('SumVar  MR_w:  %.3e  (share = %.2f%%)\n', vMR_w,  100*shareMR_w);
+            fprintf('SumVar  VID_w: %.3e  (share = %.2f%%)\n', vVID_w, 100*shareVID_w);
+            fprintf('SumVar  AUD_w: %.3e  (share = %.2f%%)\n\n', vAUD_w, 100*shareAUD_w);
+
+        end
+
     end
+
+
 
     %% CONCATENATE MR, VIDEO AND AUDIO (weighted or raw depending on flag)
     mixWarps = [thisMRWarp; thisVidWarp; thisAudio];
