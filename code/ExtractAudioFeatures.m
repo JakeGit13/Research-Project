@@ -228,14 +228,18 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
 
 
-    %% NORMALISATION
+
     
 
 
 
 
     %% Assemble features into output block (features x frames)
-    audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];
+    % audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];  % full set
+
+
+
+    audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];       % partial for testing
     
 
 
