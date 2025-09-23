@@ -70,9 +70,9 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     vidVarVec = var(thisVidWarp, 0, 2);  % [p_VID x 1]
     audVarVec = var(thisAudio,   0, 2);  % [p_AUD x 1]
 
-    vMR  = nansum(mrVarVec);
-    vVID = nansum(vidVarVec);
-    vAUD = nansum(audVarVec);
+    vMR  = sum(mrVarVec);
+    vVID = sum(vidVarVec);
+    vAUD = sum(audVarVec);
     vTot = vMR + vVID + vAUD;
 
     shareMR  = vMR  / vTot;
