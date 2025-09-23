@@ -1,10 +1,10 @@
-function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
+function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     % Inputs:
     %   data           : struct array with .mr_warp2D, .vid_warp2D 
     %   audioFeatures  : [F × T] matrix for this sentence 
     %   dataIdx        : index into 'data'
     
-    %% Default options  =======================================================================================
+    %% Options set to H1 as default =======================================================================================
     arguments
         data
         audioFeatures
@@ -13,7 +13,8 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
         opts.nBoots (1,1) double = 1000
         opts.VERBOSE (1,1) logical = false 
         opts.genFigures (1,1) logical = false
-        opts.ifNormalise (1,1) logical = false
+        opts.ifNormalise (1,1) logical = true;
+        opts.includeAudio (1,1) logical = true;
 
         %% >>> NEW: diagnostics controls (no normalization applied) <<< NOT SURE IF THESE ARE NEEDED TBH 
         opts.targetAudioShare (1,1) double = 0.15   % e.g., 0.10–0.20 is a good range
@@ -24,7 +25,8 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
     nBoots      = opts.nBoots;
     VERBOSE     = opts.VERBOSE;    
     genfigures  = opts.genFigures;
-    normalise   = opts.ifNormalise;
+    ifNormalise   = opts.ifNormalise;
+    includeAudio   = opts.includeAudio;
 
     targetAudioShare = opts.targetAudioShare;
     
@@ -131,7 +133,7 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
     %% Z-SCORING
     %% WITHIN-BLOCK NORMALIZATION (per-feature z-score across time)
     % =========================
-    if normalise
+    if ifNormalise
         if VERBOSE, fprintf('Applying within-block per-feature z-scoring...\n'); end
 
         % Compute per-feature mean/std across time (dimension 2)
@@ -246,8 +248,38 @@ function results = trimodalH1_v2(data, audioFeatures, dataIdx, opts)
 
 
 
-    %% CONCATENATE MR, VIDEO AND AUDIO (weighted or raw depending on flag)
-    mixWarps = [thisMRWarp; thisVidWarp; thisAudio];
+    %% CONCATENATE MR, VIDEO AND AUDIO (depending on H1 or H2)
+    
+    if includeAudio 
+        mixWarps = [thisMRWarp; thisVidWarp; thisAudio]; 
+    else 
+        mixWarps = [thisMRWarp; thisVidWarp]; 
+    end
+
+    %% Not sure what this is doing tbh 
+    pMR  = size(thisMRWarp,  1);
+    pVID = size(thisVidWarp, 1);
+    pAUD = opts.includeAudio * size(thisAudio, 1);  % 0 if no audio in fit
+    
+    idxMR  = 1:pMR;
+    idxVID = pMR + (1:pVID);
+    idxAUD = pMR + pVID + (1:pAUD);  % empty if pAUD==0
+    
+    % Projection input: start all zeros, then fill only the allowed block(s)
+    XprojInput = zeros(size(mixWarps), 'like', mixWarps);
+    
+    switch reconstructId
+        case 1  % target MR: feed Video-only
+            XprojInput(idxVID, :) = thisVidWarp;   % MR and (if present) Audio stay zero
+        case 2  % target Video: feed MR-only
+            XprojInput(idxMR, :)  = thisMRWarp;    % Video and (if present) Audio stay zero
+        case 3  % H1 target Audio: feed MR+Video-only
+            XprojInput(idxMR, :)  = thisMRWarp;
+            XprojInput(idxVID, :) = thisVidWarp;   % Audio (if present) stays zero
+        otherwise
+            error('reconstructId must be 1 (MR), 2 (Video), or 3 (Audio).');
+    end
+
 
     % Perform a PCA on the hybrid data
     [origPCA, origMorphMean, origloadings] = doPCA(mixWarps); 

@@ -76,12 +76,13 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
     
        
 
-        r = trimodalH1_v2(mrAndVideoData, audioFeatures, dataIdx, ...
-                       reconstructId=3, ...
+        r = trimodalPCA(mrAndVideoData, audioFeatures, dataIdx, ...
+                       reconstructId=3, ...     % 3 = Audio
                        nBoots=nBoots, ...
                        VERBOSE=true, ...
                        ifNormalise=true, ...
-                       targetAudioShare= 0.15);
+                       targetAudioShare= 0.15, ...      % subject to change
+                       includeAudio= true);
 
         if ~isfile(h1CSV), generateEmptyCSV(r, h1CSV); end
         if writeToCsv_h1 && isfile(h1CSV), appendToCSV(r, h1CSV); end
@@ -89,8 +90,7 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
     end
 
     
-    
-    
+   
     if doH2
         fprintf("Starting H2\n");
     
