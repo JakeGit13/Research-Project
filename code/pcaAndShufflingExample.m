@@ -1,62 +1,40 @@
-function pcaAndShufflingExample
-% pcaAndShufflingExample
-% SCRIPT FOR THE PAPER 'The inter-relationship between the face and vocal-tract configuration during audio-visual speech'
-%   A PCA is performed on the hybrid MR/video, the MR is reconstructed, and the original and reconstructed loadings are displayed
-%   The same process is then performed 1000 times when the MR frame order has been randomly-shuffled and loading comparison statistics are displayed  
-%
-%   Only one actor/sentence example is shown by default, as it takes some time to compute 1000 shuffled PCAs
-%   Shuffling:
-%       If more than one core is available then parallel processing will be used (this can be switched on/off using usePar)
-%       On my ~2015 Mac Book Pro it takes around 3-4 minutes to run the shuffling for one actor/sentence, without using parallel processing
-%       If the shuffling is taking too long then reduce the number of bootstraps (nBoots)
-%
-%   A note on the data:
-%   data is a structure with an entry for each actor and sentence. It can be indexed into (e.g. data(1)) and the dot notation used to
-%   access specific fields. For example, data(1).mr_frames gives a cell array containing the MR frames for actor 1 / sentence 252 and
-%   data(6).vid_warp2D gives the video input to the PCA for actor 8 / sentence 256
-%   Fields:
-%   mr_frames - cell array of MR frames
-%   video_frames - cell array of video frames
-%   mr_warp2D - MR input to the PCA
-%   vid_warp2D - video input to the PCA
-%   actor - actor number ([1, 4, 6, 7, 8, 10, 12, 13, 14])
-%   sentence - sentence number (1-10)
-%
-% Author: Chris Scholes / University of Nottingham / Department of Psychology
-% Date created:  8th Dec 2019
-% Last modified: 22nd Sept 2019
-
-
-% THINGS THAT YOU MAY WANT TO CHANGE *******************************************************************************************************************
-% Point to the location of the mat file 'mrAndVideoData.mat' 
-dataDir = '/Users/jaker/Research-Project/data';
-
-usePar = true; % set to false if parallel processing isn't required/working
-
-reconstructInd = 1; % 1 = MR, 2 = video
-
-nBoots = 1000; % # bootstraps
-% ******************************************************************************************************************************************************
-
-
-% Reset random seed
-rng('default');
-
-dataFile = 'mrAndVideoData.mat';
-
-addpath(dataDir) % Add the user-defined data directory to the path 
-load(dataFile,'data');
-
-actors = [data.actor]; % Array of actor numbers
-sentences = [data.sentence]; % Array of sentence numbers
-
-%% PCA on hybrid facial video and vocal-tract MR images
-
-for ii = 9%:length(actors)
+function results = pcaAndShufflingExample(data, dataIdx, opts)
+    % Inputs:
+    %   data           : struct array with .mr_warp2D, .vid_warp2D 
+    %   dataIdx        : index into 'data'
     
+    %% Default options =======================================================================================
+    arguments
+        data
+        dataIdx 
+        opts.reconstructId (1,1) double = 1     % MR = 1, VIDEO = 2
+        opts.nBoots (1,1) double = 1000
+        opts.VERBOSE (1,1) logical = false 
+        opts.genFigures (1,1) logical = false
+
+
+    end
+
+    reconstructId = opts.reconstructId;
+    nBoots      = opts.nBoots;
+    VERBOSE     = opts.VERBOSE;    
+    genfigures  = opts.genFigures;
+   
+    usePar = true;  % set to false if parallel processing isn't required/working
+            
+    %% Select out data from this actor/sentence
+
+
+    % Reset random seed
+    rng('default');
+
+    
+    %% PCA on hybrid facial video and vocal-tract MR images
+    
+        
     % Select out data fro this actor/sentence
-    thisMRWarp = data(ii).mr_warp2D;
-    thisVidWarp = data(ii).vid_warp2D;
+    thisMRWarp  = data(dataIdx).mr_warp2D;   % [p_MR x T]
+    thisVidWarp = data(dataIdx).vid_warp2D;  % [p_VID x T]
     
     % Concatentate the MR and video data
     mixWarps = [thisMRWarp; thisVidWarp];
@@ -102,8 +80,8 @@ for ii = 9%:length(actors)
         permIndexes(bootI,:) = randperm(nFrames);
     end
     
-    allShuffledOrigLoad = cell(1000,1);
-    allShuffledReconLoad = cell(1000,1);
+    allShuffledOrigLoad = cell(nBoots,1);
+    allShuffledReconLoad = cell(nBoots,1);
     
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
@@ -205,20 +183,20 @@ for ii = 9%:length(actors)
         xlabel(statStrings{statI});ylabel('Frequency');
         
     end
-end
+
 end % end pcaAndShufflingExample
 
 %% doPCA
 function [prinComp,MorphMean,loadings] = doPCA(data)
 
-% Mean each row (across frames)
-MorphMean = mean(data, 2);
-
-% Subtract overall mean from each frame
-data = bsxfun(@minus, data, MorphMean);
-xxt        = data'*data;
-[~,LSq,V]  = svd(xxt);
-LInv       = 1./sqrt(diag(LSq));
-prinComp  = data * V * diag(LInv);
-loadings = (data')*prinComp;
+    % Mean each row (across frames)
+    MorphMean = mean(data, 2);
+    
+    % Subtract overall mean from each frame
+    data = bsxfun(@minus, data, MorphMean);
+    xxt        = data'*data;
+    [~,LSq,V]  = svd(xxt);
+    LInv       = 1./sqrt(diag(LSq));
+    prinComp  = data * V * diag(LInv);
+    loadings = (data')*prinComp;
 end % end doPCA
