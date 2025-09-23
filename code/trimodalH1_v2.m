@@ -15,6 +15,7 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
         opts.genFigures (1,1) logical = false
         opts.ifNormalise (1,1) logical = true;
         opts.includeAudio (1,1) logical = true;
+        opts.h1Source (1,1) string = "MRVID"   % "MRVID" | "MR" | "VID"
 
         %% >>> NEW: diagnostics controls (no normalization applied) <<< NOT SURE IF THESE ARE NEEDED TBH 
         opts.targetAudioShare (1,1) double = 0.15   % e.g., 0.10–0.20 is a good range
@@ -256,7 +257,7 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
         mixWarps = [thisMRWarp; thisVidWarp]; 
     end
 
-    %% Not sure what this is doing tbh 
+    %% Not sure what this does now 
     pMR  = size(thisMRWarp,  1);
     pVID = size(thisVidWarp, 1);
     pAUD = opts.includeAudio * size(thisAudio, 1);  % 0 if no audio in fit
@@ -271,11 +272,25 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     switch reconstructId
         case 1  % target MR: feed Video-only
             XprojInput(idxVID, :) = thisVidWarp;   % MR and (if present) Audio stay zero
+
         case 2  % target Video: feed MR-only
             XprojInput(idxMR, :)  = thisMRWarp;    % Video and (if present) Audio stay zero
+
         case 3  % H1 target Audio: feed MR+Video-only
-            XprojInput(idxMR, :)  = thisMRWarp;
-            XprojInput(idxVID, :) = thisVidWarp;   % Audio (if present) stays zero
+            switch upper(opts.h1Source)
+                case 'MRVID'   % default: MR+VID
+                    XprojInput(idxMR,:)  = thisMRWarp;
+                    XprojInput(idxVID,:) = thisVidWarp;
+                case 'MR'      % MR-only
+                    XprojInput(idxMR,:)  = thisMRWarp;
+                    % VID remains zero
+                case 'VID'     % VID-only
+                    XprojInput(idxVID,:) = thisVidWarp;
+                    % MR remains zero
+                otherwise
+                            error('opts.h1Source must be "MRVID", "MR", or "VID".');
+                    end
+
         otherwise
             error('reconstructId must be 1 (MR), 2 (Video), or 3 (Audio).');
     end
