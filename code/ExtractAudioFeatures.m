@@ -4,10 +4,12 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
         processedAudio 
         opts.VERBOSE  = true
         opts.useNoiseAudio = false
+        opts.genFigures
     end
 
     VERBOSE = opts.VERBOSE;
     useNoiseAudio = opts.useNoiseAudio;
+    genFigures = opts.genFigures;
 
     % --- pull from preprocessing struct ---
     frameSnippets = processedAudio.frameSnippets;   % [winLen x nFrames]
@@ -64,6 +66,11 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
     end
 
 
+
+
+
+
+
     %% --- High-band mel filterbank (for melPC1) ---
     mel   = @(f) 2595*log10(1 + f/700);
     invmel= @(m) 700*(10.^(m/2595) - 1);
@@ -97,9 +104,6 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
         fprintf('[MEL] high band: %.0f–%.0f Hz | nBands=%d\n', f_lo, f_hi, nMel);
     end
 
-
-
-    
     % Preallocate
     f0_hz   = zeros(1, nFrames);
     vuvProb = zeros(1, nFrames);
@@ -142,7 +146,10 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
 
 
-        % --- CPP: cepstral peak prominence over the pitch quefrency band ---
+
+
+
+        %% --- CPP: cepstral peak prominence over the pitch quefrency band ---
         log_mag = log(abs(X) + eps);
         log_mag = log_mag - mean(log_mag);              % remove DC in log-spectrum
         cep = real(ifft(log_mag));                      % real cepstrum
@@ -195,7 +202,10 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
     
 
-    % === High-band mel PC1 across time (frames) ===
+
+
+
+    %% === High-band mel PC1 across time (frames) ===
     Y = mel_logE.';                          % [frames x nMel]
     Yc = bsxfun(@minus, Y, mean(Y,1));       % center variables (bands)
     [U,S,~] = svd(Yc, 'econ');               % PCA via SVD
@@ -207,9 +217,10 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
         fprintf('[MEL PC1] variance explained = %.1f%%\n', 100*expl1);
     end
 
+   
 
 
-    
+    %% VERBOSE SUMMARY PRINTS (need to add the rest)
     % Verbose summary (F0)
     if opts.VERBOSE
         nVoiced = nnz(voiced);
@@ -219,10 +230,9 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
             fprintf('[F0] Median F0=%.1f Hz | Mean NACF(voiced)=%.2f\n', ...
                 median(f0_hz(voiced)), mean(vuvProb(voiced)));
         end
-    end
 
-    % Verbose summary (CPP)
-    if opts.VERBOSE
+
+        % Verbose summary (CPP)
         validCPP = isfinite(cpp_db);
         if any(validCPP)
             fprintf('[CPP] Median=%.2f dB | Mean=%.2f dB\n', ...
@@ -230,9 +240,9 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
         else
             fprintf('[CPP] No valid values.\n');
         end
-    end
 
-    if opts.VERBOSE
+
+        % Verbose summary (HF)
         fprintf('[HF ratio] band = %.0f–%.0f Hz | median=%.3f | mean=%.3f\n', ...
             freqs(find(hf_mask,1,'first')), freqs(find(hf_mask,1,'last')), ...
             median(hf_ratio), mean(hf_ratio));
@@ -261,13 +271,18 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
 
 
+    %% CALL PLOTTING FUNCTIONS
+    if genFigures 
+
+        plot_F0_voicing(processedAudio, audioBlock) 
+
+        
+    end
 
 
 
 
-
-
-    %% Optional negative control: return i.i.d. noise instead of real features
+    %% Optional: RETURN noise block instead of real features
     % useNoiseAudio = isfield(processedAudio,'useNoiseAudio') && logical(processedAudio.useNoiseAudio);
     if useNoiseAudio
         rng(12345);  % reproducible control
@@ -279,6 +294,7 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
         fprintf('[OUT %s] features x frames = %d x %d\n', tag, size(audioBlock,1), size(audioBlock,2));
     end
     
+    
 
 
 
@@ -287,7 +303,7 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
 end
 
-% tiny helper (local ternary) — keeps code minimal without extra dependencies
+% tiny helper (local ternary) GET RID OF THIS 
 function y = ternary(cond, a, b)
     
     if cond
@@ -295,4 +311,72 @@ function y = ternary(cond, a, b)
     else
         y=b; 
     end
+end
+
+
+
+%% PLOTTING FUNCTIONS
+function plot_F0_voicing(processedAudio, audioBlock)
+
+    % ---- Inputs expected ----
+    % processedAudio.frameSnippets : [winLen x nFrames]
+    % processedAudio.sampleRate    : scalar
+    % processedAudio.vuvThresh     : (optional) scalar, default 0.4
+    % audioBlock(1,:) = logF0;  audioBlock(2,:) = vuvProb
+
+    X  = processedAudio.frameSnippets;
+    fs = processedAudio.sampleRate;
+    if isfield(processedAudio,'vuvThresh')
+        vuvThresh = processedAudio.vuvThresh;
+    else
+        vuvThresh = 0.40;
+    end
+
+    [winLen, nFrames] = size(X);
+    t = (0:nFrames-1) * (winLen/fs);                 % seconds
+
+    % ---- Per-frame spectrogram (no raw wav needed) ----
+    nfft   = 2^nextpow2(2*winLen);
+    halfN  = floor(nfft/2)+1;
+    specDB = zeros(halfN, nFrames);
+    for k = 1:nFrames
+        xk = X(:,k) - mean(X(:,k));                  % DC remove
+        mag = abs(fft(xk, nfft));
+        specDB(:,k) = 20*log10(mag(1:halfN) + eps);
+    end
+    f = (0:halfN-1) * (fs/nfft);                     % Hz
+    climHi = prctile(specDB(:),95);                  % display range
+    climLo = climHi - 60;
+
+    % ---- Features ----
+    logF0   = audioBlock(1,:);
+    vuvProb = audioBlock(2,:);
+    f0_hz = exp(logF0);
+    f0_hz(~isfinite(f0_hz) | f0_hz<=0) = NaN;        % hide invalid
+    voiced = (vuvProb >= vuvThresh);
+
+    % ---- Plot ----
+    figure('Color','w');
+
+    % (A) Spectrogram with F0 overlay
+    subplot(2,1,1);
+    imagesc(t, f, specDB); axis xy;
+    colormap parula; caxis([climLo climHi]);
+    hold on;
+    f0_voiced = f0_hz;  f0_voiced(~voiced) = NaN;
+    f0_unv    = f0_hz;  f0_unv(voiced)    = NaN;
+    plot(t, f0_voiced, 'k',  'LineWidth', 1.5);
+    plot(t, f0_unv,   'k--','LineWidth', 1.0);
+    ylim([0, min(5000, fs/2)]);
+    xlabel('Time (s)'); ylabel('Frequency (Hz)');
+    title('Spectrogram with F0 (solid=voiced, dashed=interpolated)');
+
+    % (B) Voicing probability strip
+    subplot(2,1,2);
+    plot(t, vuvProb, 'k','LineWidth',1.2); hold on;
+    yline(vuvThresh, '--r');
+    ylim([0 1]); xlim([t(1) t(end)]);
+    xlabel('Time (s)'); ylabel('Voicing prob.');
+    title(sprintf('Voicing (threshold = %.2f)', vuvThresh));
+
 end

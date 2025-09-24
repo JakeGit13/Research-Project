@@ -26,14 +26,12 @@ scholes_bimodalCSV = fullfile(resultsRoot, 'scholes_bimodal_results.csv');
 nBoots = 100;    % Universal across all tests (1000 as default)
 targetAudioShare = 0.15; % Call on all tests % subject to change
 
-generateCsv = false;
-
 % Independent switches to write CSVs 
 writeToCsv = false;
 
 doH1_audio = false;
 doH2_bimodal = false;
-doH2_trimodal = true;
+doH2_trimodal = false;
 doScholes_bimodal = false; 
 
 % Corrected map between MR/Video and Audio files [dataIdx, filename]
@@ -74,7 +72,7 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
 
     preProcessedAudioStruct = processAudio(wavPath, nFrames, VERBOSE = false);
 
-    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = false,useNoiseAudio=false);
+    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = false,genFigures=true);
 
 
     if doH1_audio
@@ -90,7 +88,10 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
                        includeAudio= true, ...
                        h1Source="MRVID");
 
-        if ~isfile(h1_audioCSV), generateEmptyCSV(H1_trimodal_AUD_MR_VID, h1_audioCSV); end
+        if ~isfile(h1_audioCSV)
+            generateEmptyCSV(H1_trimodal_AUD_MR_VID, h1_audioCSV); 
+        end
+
         if writeToCsv && isfile(h1_audioCSV), appendToCSV(H1_trimodal_AUD_MR_VID, h1_audioCSV); end
 
         %% MR-only -> AUD 

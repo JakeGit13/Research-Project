@@ -1,4 +1,4 @@
-function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
+function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     % Inputs:
     %   data           : struct array with .mr_warp2D, .vid_warp2D 
     %   audioFeatures  : [F × T] matrix for this sentence 
@@ -699,6 +699,63 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
             
         end
     end
+
+
+    %% STORE RESULTS ===============================================================
+    % Results for csv 
+    % --- Common identifiers/config ---
+    resultsForCSV.data_idx        = dataIdx;
+    resultsForCSV.reconstruct_id  = reconstructId;
+    resultsForCSV.source_label    = char(obsLabel);  % 'MR+Video' | 'MR' | 'Video'
+    resultsForCSV.include_audio   = double(includeAudio);% Why double?
+
+    % What's this ?
+    resultsForCSV.pMR             = pMR; results.pVID = pVID; results.pAUD = size(thisAudio,1) * includeAudio;
+    resultsForCSV.wMR             = wMR; results.wVID = wVID; results.wAUD = (includeAudio)*wAUD;
+    resultsForCSV.shareMR_z       = shareMR_z; results.shareVID_z = shareVID_z; results.shareAUD_z = shareAUD_z;
+    
+    % --- Loadings-space (diagnostic) ---
+    resultsForCSV.R_load          = unshuffstats(1);
+    resultsForCSV.slope_load      = unshuffstats(2);
+    resultsForCSV.SSE_load        = unshuffstats(3);
+    
+    % --- Native-space metrics ---
+    if reconstructId == 3
+        resultsForCSV.audio_R_native   = R_audio_true;
+        resultsForCSV.audio_SSE_native = SSE_audio_true;
+        muY = mean(orig_audio(:)); SST = sum((orig_audio(:) - muY).^2);
+        resultsForCSV.audio_R2_native  = 1 - SSE_audio_true / max(SST, eps);
+    
+        if nBoots > 0
+            resultsForCSV.p_SSE_audio   = p_SSE;
+            resultsForCSV.p_R_audio     = (1 + sum(R_audio_shuff >= R_audio_true)) / (nBoots + 1);
+            resultsForCSV.null_R_mean   = mean(R_audio_shuff);   results.null_R_sd  = std(R_audio_shuff);
+            resultsForCSV.null_R_p95    = prctile(R_audio_shuff,95); results.null_R_p99 = prctile(R_audio_shuff,99);
+            resultsForCSV.null_SSE_mean = mean((SSE_audio_shuff));   results.null_SSE_sd = std(SSE_audio_shuff);
+            resultsForCSV.null_SSE_p05  = prctile(SSE_audio_shuff,5); results.null_SSE_p01 = prctile(SSE_audio_shuff,1);
+        else
+            % set to NaN or leave absent; your writer can handle either
+            [results.p_SSE_audio, results.p_R_audio, results.null_R_mean] = deal(NaN);
+            [results.null_R_sd, results.null_R_p95, results.null_R_p99]   = deal(NaN);
+            [results.null_SSE_mean, results.null_SSE_sd, results.null_SSE_p05, results.null_SSE_p01] = deal(NaN);
+        end
+    
+        % PCA audio-row energy
+        resultsForCSV.pcAudio_weight_median = median(pcAudioWeight);
+        resultsForCSV.pcAudio_weight_max    = max(pcAudioWeight);
+    
+    else
+        % H2 (MR/Video targets)
+        resultsForCSV.native_R   = R_native;
+        resultsForCSV.native_SSE = SSE_native;
+        resultsForCSV.native_R2  = R2_native;
+    end
+
+
+
+
+
+
 
 end % end pcaAndShufflingExample
 
