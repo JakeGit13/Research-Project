@@ -60,17 +60,18 @@ function results = pcaAndShufflingExample(data, dataIdx, opts)
     results.nonShuffledReconLoadings = partial_loading;
     
     % Display ************************************************************************************************************************
-    
-    figure;
-    
-    % Original and reconstructed loadings
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
+    if genfigures
+        figure;
+        
+        % Original and reconstructed loadings
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
+        
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
+        
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
+    end
 
     % Do the shuffled reconstruction *************************************************************************************************
     
@@ -156,32 +157,33 @@ function results = pcaAndShufflingExample(data, dataIdx, opts)
     end
     
     % Display ************************************************************************************************************************
-    
-    figure;
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
+    if genfigures
+        figure;
         
-        % Shuffled distributions
-        subplot(2,3,statI+3);
+        % Original and reconstructed loadings
+        subplot(2,3,2);
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
         
-        histogram(shuffstats(statI,:),50);hold on
-        axis tight
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
         
-        xlabel(statStrings{statI});ylabel('Frequency');
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
         
+        statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
+        
+        for statI = 1:3
+            
+            % Shuffled distributions
+            subplot(2,3,statI+3);
+            
+            histogram(shuffstats(statI,:),50);hold on
+            axis tight
+            plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+            
+            xlabel(statStrings{statI});ylabel('Frequency');
+            
+        end
     end
 
 end % end pcaAndShufflingExample

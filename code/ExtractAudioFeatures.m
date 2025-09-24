@@ -3,7 +3,7 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
     arguments
         processedAudio 
         opts.VERBOSE  = true
-        opts.useNoiseAudio = true
+        opts.useNoiseAudio = false
     end
 
     VERBOSE = opts.VERBOSE;
@@ -178,9 +178,21 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
     
     % Map to final features
     vuvFlag = double(vuvProb >= vuvThresh);     % optional binary flag (not returned)
-    logF0   = unvoicedValue * ones(1, nFrames);
-    voiced  = (f0_hz > 0) & (vuvFlag == 1);
-    logF0(voiced) = log(f0_hz(voiced));         % unvoiced stays at UnvoicedValue (default 0)
+    % Robust lf0 with interpolation over unvoiced frames
+    voiced = (f0_hz > 0) & (vuvFlag == 1);              % logical 1×T
+    logF0  = nan(1, nFrames, 'like', f0_hz);            % start with NaNs
+    
+    logF0(voiced) = log(max(f0_hz(voiced), eps));       % natural log
+    
+    % Interpolate NaNs across time; then fill any leading/trailing NaNs
+    logF0 = fillmissing(logF0, 'linear');
+    logF0 = fillmissing(logF0, 'nearest');
+    
+    % Fallback if no voiced frames at all
+    if all(~voiced)
+        logF0(:) = 0;  % neutral fallback; keeps downstream stable
+    end
+
     
 
     % === High-band mel PC1 across time (frames) ===
@@ -236,6 +248,16 @@ function audioBlock = extractAudioFeatures(processedAudio, opts)
 
     %% Assemble features into output block (features x frames)
     audioBlock = [logF0; vuvProb; cpp_db; hf_ratio; melPC1];  % full set
+
+
+    %% Low-pass smooth features along time to match MR/Video bandwidth
+    % Set fps to your per-frame rate (e.g., 16.7 or 25)
+    fps  = 16.7;                     % Estimate based on paper 
+    cut  = 8;                        % Hz cutoff (6–7 Hz recommended)
+    win  = max(1, round(fps / cut)); % moving-average window (frames)
+    
+    audioBlock = movmean(audioBlock, win, 2, 'Endpoints', 'shrink');
+
 
 
 

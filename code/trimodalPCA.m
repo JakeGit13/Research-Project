@@ -30,6 +30,10 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     includeAudio   = opts.includeAudio;
 
     targetAudioShare = opts.targetAudioShare;
+    h1Source = opts.h1Source;
+
+    
+
     
 
     % Reset random seed
@@ -277,19 +281,22 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
             XprojInput(idxMR, :)  = thisMRWarp;    % Video and (if present) Audio stay zero
 
         case 3  % H1 target Audio: feed MR+Video-only
-            switch upper(opts.h1Source)
+            switch upper(h1Source)
                 case 'MRVID'   % default: MR+VID
+                    fprintf("RECONSTRUCTING FROM %s\n", h1Source)
                     XprojInput(idxMR,:)  = thisMRWarp;
                     XprojInput(idxVID,:) = thisVidWarp;
                 case 'MR'      % MR-only
+                    fprintf("RECONSTRUCTING FROM %s\n", h1Source)
                     XprojInput(idxMR,:)  = thisMRWarp;
                     % VID remains zero
                 case 'VID'     % VID-only
+                    fprintf("RECONSTRUCTING FROM %s\n", h1Source)
                     XprojInput(idxVID,:) = thisVidWarp;
                     % MR remains zero
                 otherwise
                             error('opts.h1Source must be "MRVID", "MR", or "VID".');
-                    end
+            end
 
         otherwise
             error('reconstructId must be 1 (MR), 2 (Video), or 3 (Audio).');
@@ -300,27 +307,28 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     [origPCA, origMorphMean, origloadings] = doPCA(mixWarps); 
 
 
-
-
     % Do the non-shuffled reconstruction for the original order **********************************************************************
     
     % Indexes of boundaries between MR, video and audio
 
-    nMR = size(thisMRWarp,1); 
-    nVID = size(thisVidWarp,1); 
-    nAUD = size(thisAudio,1);
+    % Boundaries must match the FIT MATRIX (mixWarps), not raw blocks
+    nMR  = size(thisMRWarp, 1);
+    nVID = size(thisVidWarp, 1);
+    nAUD = includeAudio * size(thisAudio,1);   % 0 if audio was excluded at fit
     
-    elementBoundaries = [0, nMR, nMR + nVID, nMR + nVID + nAUD]; % Element boundaries based on the rows
+    elementBoundaries = [0, nMR, nMR + nVID, nMR + nVID + nAUD];   % Element boundaries based on the rows
+
     
-    % --- Audio share in the PCs (unshuffled) ---
-    nMR  = size(thisMRWarp,1);
-    nVID = size(thisVidWarp,1);
-    nAUD = size(thisAudio,1);
-    b = [0, nMR, nMR+nVID, nMR+nVID+nAUD];
-    audRows = (b(3)+1):b(4);
-    
-    pcAudioWeight = sum(origPCA(audRows,:).^2, 1);   % fraction per PC in audio rows
-    fprintf('[PC|Audio] median=%.3e  max=%.3e\n', median(pcAudioWeight), max(pcAudioWeight));
+    % Audio rows only exist if audio was included in the fit
+    b = elementBoundaries;
+    if includeAudio && (b(4) > b(3))
+        audRows = (b(3)+1):b(4);
+        pcAudioWeight = sum(origPCA(audRows,:).^2, 1);
+        fprintf('[PC|Audio] median=%.3e  max=%.3e\n', median(pcAudioWeight), max(pcAudioWeight));
+    else
+        audRows = [];
+    end
+
 
 
 
@@ -331,16 +339,15 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
         fprintf('Audio rows: %d–%d\n\n', nMR+nVID+1, nMR+nVID+nAUD);
     end
 
-    partial_data = mixWarps;    % make copy of mixWarps
-    partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % Set one modality to 0
-    partialMorphMean = mean(partial_data, 2); % get row means 
-    partial_centered = bsxfun(@minus, partial_data, partialMorphMean);
-    partial_loading = partial_centered'*origPCA;
-
+    % Project FROM the source-only input you just built (XprojInput)
+    Xctr_source     = XprojInput - origMorphMean;
+    partial_loading = Xctr_source' * origPCA;   % scores (T×K)
     
     % Store the loadings for further processing
-    results.nonShuffledLoadings = origloadings;
-    results.nonShuffledReconLoadings = partial_loading;
+    results.nonShuffledLoadings      = origloadings;      % scores from the fit data (T×K)
+    results.nonShuffledReconLoadings = partial_loading;   % scores from source-only input (T×K)
+    
+
 
 
     %% Just for audio
@@ -359,20 +366,57 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
         fprintf('[Audio|data] Unshuffled: R=%.3f  SSE=%.3e\n', R_audio_true, SSE_audio_true);
     end
 
+    %% Primary H2 metric: native target space (MR/Video)
+    if reconstructId ~= 3
+        % Reconstruct the full data from the source-only scores
+        recon_full = origPCA * (partial_loading') + origMorphMean;   % rows x T
+    
+        % Target rows (already defined earlier as idxMR / idxVID)
+        if reconstructId == 1
+            tgtRows = idxMR;   tgtName = 'MR';
+        else % reconstructId == 2
+            tgtRows = idxVID;  tgtName = 'Video';
+        end
+    
+        recon_tgt = recon_full(tgtRows,:);
+        orig_tgt  = mixWarps(tgtRows,:);
+    
+        % Centre per feature (rows) before comparison
+        rt = recon_tgt - mean(recon_tgt, 2);
+        ot = orig_tgt  - mean(orig_tgt,  2);
+    
+        R_native   = corr(ot(:), rt(:), 'rows','complete');
+        SSE_native = sum((ot(:) - rt(:)).^2);
+        muY        = mean(ot(:));
+        SST        = sum((ot(:) - muY).^2);
+        R2_native  = 1 - SSE_native / max(SST, eps);
+    
+        % Store & print
+        results.native_R   = R_native;
+        results.native_SSE = SSE_native;
+        results.native_R2  = R2_native;
+    
+        fprintf('Primary (%s space): SSE=%.3e, R^2=%.3f\n', tgtName, SSE_native, R2_native);
+    end
+
+
+
+
+
     
     %% Display ************************************************************************************************************************
-    
-    figure;
-    
-    % Original and reconstructed loadings
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-
+    if genfigures
+        figure;
+        
+        % Original and reconstructed loadings
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
+        
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
+        
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
+    end 
 
 
     %% Do the shuffled reconstruction *************************************************************************************************
@@ -399,7 +443,9 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
     tic
-    if usePar && nCores>2
+
+    % Only build a null for H1 (Audio target). H2 runs should set nBoots=0 upstream.
+    if reconstructId == 3 && usePar && nCores>2
         disp('Using parallel processing...');
         
         poolOpen = gcp('nocreate');
@@ -425,17 +471,38 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
             
             % Refit PCA on the shuffled hybrid
             [PCA, MorphMean, loadings] = doPCA(shuffWarps);
-
             
-            partial_data = shuffWarps;
-            partial_data(elementBoundaries(reconstructId)+1:elementBoundaries(reconstructId+1),:) = 0; % surely we must change it? 
-            partialMorphMean = mean(partial_data, 2);
-            partial_centered = bsxfun(@minus, partial_data, partialMorphMean); % resizes partialMorphMean to make subtraction possible (could use matrix maths?)
-            partial_loading = partial_centered'*PCA;
+            % Build the matching SOURCE-ONLY projection input for THIS shuffled fit
+            XprojInputB = zeros(size(shuffWarps), 'like', shuffWarps);
+            switch reconstructId
+                case 1   % target MR: feed VID-only
+                    XprojInputB( (elementBoundaries(1)+1) : elementBoundaries(2), : ) = 0; % MR rows zero (redundant)
+                    XprojInputB( (elementBoundaries(2)+1) : elementBoundaries(3), : ) = thisVidWarp;
+                case 2   % target VID: feed MR-only
+                    XprojInputB( (elementBoundaries(1)+1) : elementBoundaries(2), : ) = thisMRWarp;
+                    XprojInputB( (elementBoundaries(2)+1) : elementBoundaries(3), : ) = 0; % VID rows zero
+                case 3   % target AUD: feed MR+VID / MR-only / VID-only based on h1Source
+                    switch upper(h1Source)
+                        case 'MRVID'
+                            XprojInputB( (elementBoundaries(1)+1) : elementBoundaries(2), : ) = thisMRWarp;
+                            XprojInputB( (elementBoundaries(2)+1) : elementBoundaries(3), : ) = thisVidWarp;
+                        case 'MR'
+                            XprojInputB( (elementBoundaries(1)+1) : elementBoundaries(2), : ) = thisMRWarp;
+                        case 'VID'
+                            XprojInputB( (elementBoundaries(2)+1) : elementBoundaries(3), : ) = thisVidWarp;
+                    end
+            end
+            % Always zero audio rows at projection; H1/H2 never feed audio as input
+            if includeAudio && elementBoundaries(4) > elementBoundaries(3)
+                XprojInputB( (elementBoundaries(3)+1) : elementBoundaries(4), : ) = 0;
+            end
             
-            allShuffledOrigLoad{bootI} = loadings;
+            % Project FROM the source-only input in the shuffled fit
+            XctrB          = XprojInputB - MorphMean;
+            partial_loading = XctrB' * PCA;
+            
+            allShuffledOrigLoad{bootI}  = loadings;
             allShuffledReconLoad{bootI} = partial_loading;
-
 
 
             %% Just for audio (shuffled)
@@ -481,106 +548,156 @@ function results = trimodalPCA(data, audioFeatures, dataIdx, opts)
     
     unshuffstats = [R p(1) SSE];
     
-    % Shuffled
-    shuffstats = NaN(3,nBoots);
-    for bootI=1:nBoots
-        loadings1D = results.allShuffledOrigLoad{bootI}(:);
-        reconLoadings1D = results.allShuffledReconLoad{bootI}(:);
-        
-        SSE = sum((loadings1D-reconLoadings1D).^2); % sum of squared error
-        [R,~] = corr(loadings1D,reconLoadings1D);   % Pearson correlation
-        p = polyfit(loadings1D,reconLoadings1D,1); % linear fit
-        
-        shuffstats(:,bootI) = [R p(1) SSE];
+    % Shuffled (null) – only for H1
+    if reconstructId == 3 && nBoots > 0 && ~isempty(results.allShuffledOrigLoad)
+        nBootsEff = numel(results.allShuffledOrigLoad);
+        shuffstats = NaN(3, nBootsEff);
+        for bootI = 1:nBootsEff
+            loadings1D      = results.allShuffledOrigLoad{bootI}(:);
+            reconLoadings1D = results.allShuffledReconLoad{bootI}(:);
+            if isempty(loadings1D) || isempty(reconLoadings1D)
+                shuffstats(:,bootI) = [NaN NaN NaN];
+            else
+                SSE = sum((loadings1D - reconLoadings1D).^2);
+                R   = corr(loadings1D, reconLoadings1D, 'rows','complete');
+                p   = polyfit(loadings1D, reconLoadings1D, 1);
+                shuffstats(:,bootI) = [R p(1) SSE];
+            end
+        end
+    else
+        shuffstats = [];
     end
+
+
 
 
 
     %% NOVEL STATS  
     % --- Descriptive labels ---
     modNames = {'MR','Video','Audio'};
-    tgt = reconstructId;                          % 1=MR, 2=Video, 3=Audio
-    obs = setdiff(1:3, tgt);                      % observed modalities
-    obsLabel = strjoin(modNames(obs), '+');
+    tgt = reconstructId;  % 1=MR, 2=Video, 3=Audio
+    
+    % Human-readable source label
+    switch tgt
+        case 1, obsLabel = 'Video';           % Video->MR (H2)
+        case 2, obsLabel = 'MR';              % MR->Video (H2)
+        case 3                                 % Audio target (H1)
+            switch upper(h1Source)
+                case 'MR',   obsLabel = 'MR';
+                case 'VID',  obsLabel = 'Video';
+                otherwise,   obsLabel = 'MR+Video';
+            end
+    end
+
     
     % --- Unshuffled metrics (true pairing) ---
     R_true     = unshuffstats(1);
     slope_true = unshuffstats(2);
     SSE_true   = unshuffstats(3);
     
-    % --- Shuffled (null) summaries ---
-    R_shuff     = shuffstats(1,:);
-    slope_shuff = shuffstats(2,:);
-    SSE_shuff   = shuffstats(3,:);
-    
-    muR   = mean(R_shuff);   sdR   = std(R_shuff);
-    p95R  = prctile(R_shuff,95);   p99R = prctile(R_shuff,99);
-    
-    muG   = mean(slope_shuff); sdG  = std(slope_shuff);
-    p95G  = prctile(slope_shuff,95); p99G = prctile(slope_shuff,99);
-    
-    muE   = mean(SSE_shuff);  sdE  = std(SSE_shuff);
-    p05E  = prctile(SSE_shuff,5);   p01E = prctile(SSE_shuff,1);   % lower is better
-    
-    % --- Percentile of the true value within the null ---
-    pct_R     = 100 * mean(R_shuff <  R_true);
-    pct_slope = 100 * mean(slope_shuff < slope_true);
-    pct_SSE   = 100 * mean(SSE_shuff  > SSE_true);   % SSE lower is better
-    
-    % --- Effect sizes (optional) ---
-    z_R     = (R_true     - muR) / max(sdR,eps);
-    z_slope = (slope_true - muG) / max(sdG,eps);
-    z_SSE   = (muE - SSE_true) / max(sdE,eps);       % inverted so larger=better
-    
     % --- Header ---
-    fprintf('\n=== Trimodal PCA (H1): Reconstruct %s from %s ===\n', modNames{tgt}, obsLabel);
+    fprintf('\n=== Trimodal PCA: Reconstruct %s from %s ===\n', modNames{tgt}, obsLabel);
     
     % --- True pairing summary ---
     fprintf('Unshuffled:  R = %.3f,  gain (slope) = %.3f,  SSE = %.3e\n', R_true, slope_true, SSE_true);
     
-    % --- Null summaries ---
-    fprintf('Null (shuffle %s):  R  mean = %.3f ± %.3f, 95th = %.3f, 99th = %.3f\n', ...
-            modNames{tgt}, muR, sdR, p95R, p99R);
-    fprintf('                     gain mean = %.3f ± %.3f, 95th = %.3f, 99th = %.3f\n', ...
-            muG, sdG, p95G, p99G);
-    fprintf('                     SSE mean  = %.3e ± %.3e,  5th = %.3e,  1st = %.3e\n', ...
-            muE, sdE, p05E, p01E);
+    % --- Shuffled (null) summaries — H1 only ---
+    if reconstructId == 3 && ~isempty(shuffstats)
+
+        
+        R_shuff     = shuffstats(1,:);
+        slope_shuff = shuffstats(2,:);
+        SSE_shuff   = shuffstats(3,:);
     
-    % --- Simple interpretation cue ---
-    if R_true > p95R
-        fprintf('Result: R exceeds the 95th percentile of the null ⇒ evidence supporting H1.\n');
-    else
-        fprintf('Result: R does not exceed the 95th percentile of the null.\n');
+        muR   = mean(R_shuff);   sdR   = std(R_shuff);
+        p95R  = prctile(R_shuff,95);   p99R = prctile(R_shuff,99);
+    
+        muG   = mean(slope_shuff); sdG  = std(slope_shuff);
+        p95G  = prctile(slope_shuff,95); p99G = prctile(slope_shuff,99);
+    
+        muE   = mean(SSE_shuff);  sdE   = std(SSE_shuff);
+        p05E  = prctile(SSE_shuff,5);   p01E = prctile(SSE_shuff,1);
+    
+        % --- Percentiles of true vs null
+        pct_R     = 100 * mean(R_shuff     <  R_true);
+        pct_slope = 100 * mean(slope_shuff <  slope_true);
+        pct_SSE   = 100 * mean(SSE_shuff   >  SSE_true);   % lower is better
+    
+        % --- Effect sizes (optional)
+        z_R     = (R_true     - muR) / max(sdR,eps);
+        z_slope = (slope_true - muG) / max(sdG,eps);
+        z_SSE   = (muE - SSE_true) / max(sdE,eps);
+    
+        % --- Null summaries
+        fprintf('Null (shuffle %s):  R  mean = %.3f ± %.3f, 95th = %.3f, 99th = %.3f\n', ...
+                modNames{tgt}, muR, sdR, p95R, p99R);
+        fprintf('                     gain mean = %.3f ± %.3f, 95th = %.3f, 99th = %.3f\n', ...
+                muG, sdG, p95G, p99G);
+        fprintf('                     SSE mean  = %.3e ± %.3e,  5th = %.3e,  1st = %.3e\n', ...
+                muE, sdE, p05E, p01E);
+    
+        if R_true > p95R
+            fprintf('Result (loadings): R exceeds the 95th percentile of the null.\n');
+        else
+            fprintf('Result (loadings): R does not exceed the 95th percentile of the null.\n');
+        end
     end
+    
+        
+
+
+
+
+
+
+    
+    % --- Primary H1 cue: audio native-space SSE / R^2 ---
+    if reconstructId == 3
+        % Empirical one-sided p for SSE (better = smaller)
+        p_SSE = (1 + sum(SSE_audio_shuff <= SSE_audio_true)) / (nBoots + 1);
+        % R^2 for the audio block (optional and quick)
+        muY  = mean(orig_audio(:));
+        SST  = sum((orig_audio(:) - muY).^2);
+        R2_audio_true = 1 - SSE_audio_true / max(SST,eps);
+    
+        fprintf('Primary (audio space): SSE=%.3e, R^2=%.3f, p_SSE=%.4g (vs lag-shuffle audio)\n', ...
+                SSE_audio_true, R2_audio_true, p_SSE);
+    end
+
 
     
     % Display ************************************************************************************************************************
-    
-    figure;
-    
-    % Original and reconstructed loadings
-    subplot(2,3,2);
-    plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
-    
-    % Unity line
-    hline=refline(1,0);
-    hline.Color = 'k';
-    
-    xlabel('Original loadings');ylabel('Reconstructed loadings');
-    
-    statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
-    
-    for statI = 1:3
+    if genfigures
+        figure;
         
-        % Shuffled distributions
-        subplot(2,3,statI+3);
+        % Original and reconstructed loadings
+        subplot(2,3,2);
+        plot(results.nonShuffledLoadings,results.nonShuffledReconLoadings,'.');
         
-        histogram(shuffstats(statI,:),50);hold on
-        axis tight
-        plot(unshuffstats([statI statI]),ylim,'r--','linewidth',2);
+        % Unity line
+        hline=refline(1,0);
+        hline.Color = 'k';
         
-        xlabel(statStrings{statI});ylabel('Frequency');
+        xlabel('Original loadings');ylabel('Reconstructed loadings');
         
+        statStrings = {'Correlation coefficient','Linear Fit Gradient','SSE'};
+        
+        for statI = 1:3
+            
+            % Shuffled distributions (H1 only)
+            subplot(2,3,statI+3);
+            if reconstructId == 3 && ~isempty(shuffstats)
+                histogram(shuffstats(statI,:),50); hold on
+                axis tight
+                plot(unshuffstats([statI statI]), ylim, 'r--', 'linewidth', 2);
+                xlabel(statStrings{statI}); ylabel('Frequency');
+            else
+                axis off
+            end
+
+
+            
+        end
     end
 
 end % end pcaAndShufflingExample
