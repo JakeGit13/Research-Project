@@ -30,7 +30,7 @@ targetAudioShare = 0.15; % Call on all tests % subject to change
 writeToCsv = false;
 
 doH1_audio = false;
-doH2_bimodal = false;
+doH2_bimodal = true;
 doH2_trimodal = false;
 doScholes_bimodal = false; 
 
@@ -72,7 +72,7 @@ for i = 1:manifestLength        % Loop through all 12 sentences using manifest
 
     preProcessedAudioStruct = processAudio(wavPath, nFrames, VERBOSE = false);
 
-    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = false,genFigures=true);
+    audioFeatures = extractAudioFeatures(preProcessedAudioStruct,VERBOSE = true,genFigures=true,useNoiseAudio=false);
 
 
     if doH1_audio
