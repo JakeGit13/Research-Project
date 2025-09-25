@@ -17,7 +17,6 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         opts.includeAudio (1,1) logical = true;
         opts.h1Source (1,1) string = "MRVID"   % "MRVID" | "MR" | "VID"
 
-        %% >>> NEW: diagnostics controls (no normalization applied) <<< NOT SURE IF THESE ARE NEEDED TBH 
         opts.targetAudioShare (1,1) double = 0.15   % e.g., 0.10–0.20 is a good range
 
     end
@@ -67,6 +66,8 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         thisAudio   = thisAudio(:,   1:T);
     end
 
+
+    %{
 
     %% BLOCK VARIANCE DIAGNOSTICS (pre-normalisation)
     % =========================
@@ -133,6 +134,8 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         'predictedShareAfterWeight', [shareMR_pred, shareVID_pred, shareAUD_pred], ...
         'T_used', T );
 
+
+    %}
 
 
     %% Z-SCORING
@@ -321,13 +324,14 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     
     % Audio rows only exist if audio was included in the fit
     b = elementBoundaries;
+
+
     if includeAudio && (b(4) > b(3))
         audRows = (b(3)+1):b(4);
-        pcAudioWeight = sum(origPCA(audRows,:).^2, 1);
-        fprintf('[PC|Audio] median=%.3e  max=%.3e\n', median(pcAudioWeight), max(pcAudioWeight));
     else
         audRows = [];
     end
+
 
 
 
@@ -343,10 +347,14 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     Xctr_source     = XprojInput - origMorphMean;
     partial_loading = Xctr_source' * origPCA;   % scores (T×K)
     
+
+%{
+
     % Store the loadings for further processing
     results.nonShuffledLoadings      = origloadings;      % scores from the fit data (T×K)
     results.nonShuffledReconLoadings = partial_loading;   % scores from source-only input (T×K)
     
+%}
 
 
 
@@ -437,8 +445,12 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     end
 
     
+    %{
+
     allShuffledOrigLoad = cell(nBoots,1);
     allShuffledReconLoad = cell(nBoots,1);
+
+    %}
     
     % Do PCA on one shuffled combo
     nCores = feature('numcores');
@@ -450,7 +462,7 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         
         poolOpen = gcp('nocreate');
         if isempty(poolOpen)
-            pp = parpool(nCores-1); % Leave one core free
+            parpool; 
         end
         
         parfor bootI = 1:nBoots
@@ -501,8 +513,12 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
             XctrB          = XprojInputB - MorphMean;
             partial_loading = XctrB' * PCA;
             
+
+            %{
             allShuffledOrigLoad{bootI}  = loadings;
             allShuffledReconLoad{bootI} = partial_loading;
+
+            %}
 
 
             %% Just for audio (shuffled)
@@ -522,8 +538,11 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
 
         end
     end
+    %{
     results.allShuffledOrigLoad = allShuffledOrigLoad;
     results.allShuffledReconLoad = allShuffledReconLoad;
+    %}
+
     toc
 
     %% Just for audio 
@@ -538,6 +557,8 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     
     % Statistics ************************************************************************************************************************
     
+
+    %{
     % Unshuffled
     loadings1D = results.nonShuffledLoadings(:);
     reconLoadings1D = results.nonShuffledReconLoadings(:);
@@ -568,9 +589,11 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         shuffstats = [];
     end
 
+    %}
 
 
 
+    %{
 
     %% NOVEL STATS  
     % --- Descriptive labels ---
@@ -643,6 +666,8 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         end
     end
     
+
+    %}
         
 
 
@@ -665,7 +690,7 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
     end
 
 
-    
+    %{
     % Display ************************************************************************************************************************
     if genfigures
         figure;
@@ -700,56 +725,49 @@ function resultsForCSV = trimodalPCA(data, audioFeatures, dataIdx, opts)
         end
     end
 
+    %}
+
 
     %% STORE RESULTS ===============================================================
-    % Results for csv 
-    % --- Common identifiers/config ---
-    resultsForCSV.data_idx        = dataIdx;
-    resultsForCSV.reconstruct_id  = reconstructId;
-    resultsForCSV.source_label    = char(obsLabel);  % 'MR+Video' | 'MR' | 'Video'
-    resultsForCSV.include_audio   = double(includeAudio);% Why double?
+    %% === STORE RESULTS (minimal CSV) =====================================
+    
+    % --- identifiers / config ---
+    resultsForCSV.data_idx           = dataIdx;
+    resultsForCSV.reconstruct_id     = reconstructId;               % 1=MR, 2=Video, 3=Audio
+    resultsForCSV.source_label       = h1Source;              % 'MR','Video','MR+Video' (for H1)
+    resultsForCSV.include_audio      = double(includeAudio);        % 0/1
+    resultsForCSV.targetAudioShare   = targetAudioShare;
+    
 
-    % What's this ?
-    resultsForCSV.pMR             = pMR; results.pVID = pVID; results.pAUD = size(thisAudio,1) * includeAudio;
-    resultsForCSV.wMR             = wMR; results.wVID = wVID; results.wAUD = (includeAudio)*wAUD;
-    resultsForCSV.shareMR_z       = shareMR_z; results.shareVID_z = shareVID_z; results.shareAUD_z = shareAUD_z;
+   
     
-    % --- Loadings-space (diagnostic) ---
-    resultsForCSV.R_load          = unshuffstats(1);
-    resultsForCSV.slope_load      = unshuffstats(2);
-    resultsForCSV.SSE_load        = unshuffstats(3);
+    % --- a single loadings-space diagnostic (legacy comparability) ---
+    % resultsForCSV.R_load = unshuffstats(1);    % correlation in loadings space
     
-    % --- Native-space metrics ---
+    % --- primary native-space metrics ---
     if reconstructId == 3
+        % H1: Audio target
         resultsForCSV.audio_R_native   = R_audio_true;
         resultsForCSV.audio_SSE_native = SSE_audio_true;
-        muY = mean(orig_audio(:)); SST = sum((orig_audio(:) - muY).^2);
-        resultsForCSV.audio_R2_native  = 1 - SSE_audio_true / max(SST, eps);
+        muY  = mean(orig_audio(:));
+        SST  = sum((orig_audio(:) - muY).^2);
+        resultsForCSV.audio_R2_native  = 1 - SSE_audio_true/max(SST,eps);
     
+        % null-only if we actually built it
         if nBoots > 0
-            resultsForCSV.p_SSE_audio   = p_SSE;
-            resultsForCSV.p_R_audio     = (1 + sum(R_audio_shuff >= R_audio_true)) / (nBoots + 1);
-            resultsForCSV.null_R_mean   = mean(R_audio_shuff);   results.null_R_sd  = std(R_audio_shuff);
-            resultsForCSV.null_R_p95    = prctile(R_audio_shuff,95); results.null_R_p99 = prctile(R_audio_shuff,99);
-            resultsForCSV.null_SSE_mean = mean((SSE_audio_shuff));   results.null_SSE_sd = std(SSE_audio_shuff);
-            resultsForCSV.null_SSE_p05  = prctile(SSE_audio_shuff,5); results.null_SSE_p01 = prctile(SSE_audio_shuff,1);
+            resultsForCSV.p_SSE_audio = p_SSE;   % one-sided (SSE smaller is better)
         else
-            % set to NaN or leave absent; your writer can handle either
-            [results.p_SSE_audio, results.p_R_audio, results.null_R_mean] = deal(NaN);
-            [results.null_R_sd, results.null_R_p95, results.null_R_p99]   = deal(NaN);
-            [results.null_SSE_mean, results.null_SSE_sd, results.null_SSE_p05, results.null_SSE_p01] = deal(NaN);
+            resultsForCSV.p_SSE_audio = NaN;
         end
-    
-        % PCA audio-row energy
-        resultsForCSV.pcAudio_weight_median = median(pcAudioWeight);
-        resultsForCSV.pcAudio_weight_max    = max(pcAudioWeight);
-    
     else
-        % H2 (MR/Video targets)
+        % H2: MR/Video target
         resultsForCSV.native_R   = R_native;
         resultsForCSV.native_SSE = SSE_native;
         resultsForCSV.native_R2  = R2_native;
     end
+    
+
+
 
 
 
